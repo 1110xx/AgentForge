@@ -33,7 +33,8 @@ export const sourceAliases = [
   },
 ] as const;
 
-const backendTarget = process.env.AGENT_PLATFORM_BASE_URL ?? "http://127.0.0.1:8000";
+const backendTarget =
+  process.env.AGENT_PLATFORM_BASE_URL ?? "http://127.0.0.1:8080";
 
 export default defineConfig({
   plugins: [react()],
@@ -45,6 +46,9 @@ export default defineConfig({
       "/api": {
         target: backendTarget,
         changeOrigin: true,
+        // The SDK talks to "/api/agent-platform/v1/*" while the backend
+        // serves "/v1/*" — strip the SDK prefix before forwarding.
+        rewrite: (path) => path.replace(/^\/api\/agent-platform/, ""),
         // SSE must not be buffered by the proxy.
         configure: (proxy) => {
           proxy.on("proxyRes", (proxyRes) => {

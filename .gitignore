@@ -4,6 +4,7 @@ pycache
 *.py[cod]
 .venv/
 frontend/node_modules/
+frontend/examples/*/node_modules/
 frontend/packages/+/dist/
 frontend/**/*.tsbuildinfo
 dist/
