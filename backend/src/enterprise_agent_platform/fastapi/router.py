@@ -16,6 +16,7 @@ from enterprise_agent_platform.contracts.models import (
     RunEventPage,
     RunViewSnapshot,
     StrictModel,
+    SurfaceRevision,
 )
 from enterprise_agent_platform.control.context import RequestContext
 from enterprise_agent_platform.control.effect_recovery import FailedEffectRecoveryService
@@ -296,6 +297,27 @@ def create_agent_platform_router(container: AgentPlatformContainer) -> APIRouter
         snapshot = await query.get_snapshot(ctx.tenant_id, run_id)
         response.headers["ETag"] = _etag(snapshot.view.version)
         return snapshot
+
+    @router.get(
+        "/runs/{run_id}/surfaces/{surface_id}",
+        response_model=SurfaceRevision,
+        operation_id="getSurfaceRevision",
+        responses=_error_responses(401, 403, 404, 409, 422, 500),
+    )
+    async def get_surface_revision(
+        run_id: str,
+        surface_id: str,
+        ctx: Annotated[RequestContext, Depends(context)],
+        revision: Annotated[int | None, Query(ge=1)] = None,
+    ) -> SurfaceRevision:
+        """Read one immutable A2UI surface revision (defaults to the latest)."""
+        require_scope(ctx, "runs:read")
+        return await query.get_surface_revision(
+            ctx.tenant_id,
+            run_id,
+            surface_id,
+            revision=revision,
+        )
 
     @router.post(
         "/runs/{run_id}/actions",

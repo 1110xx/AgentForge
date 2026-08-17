@@ -1,0 +1,27 @@
+{
+  "name": "@platform/agent-ui-react",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@platform/agent-ui-client": "0.1.0",
+    "@platform/agent-ui-catalog": "0.1.0",
+    "@platform/agent-ui-protocol": "0.1.0"
+  },
+  "peerDependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  }
+}

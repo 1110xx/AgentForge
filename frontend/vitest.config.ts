@@ -38,6 +38,12 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    env: {
+      // React 19 only exports `act` from its development build; forcing a
+      // non-production NODE_ENV keeps jsdom component tests working even when
+      // the invoking shell exports NODE_ENV=production.
+      NODE_ENV: "test",
+    },
     include: [
       "packages/**/*.test.ts",
       "packages/**/*.test.tsx",

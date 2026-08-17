@@ -11,6 +11,7 @@ from enterprise_agent_platform.contracts.models import (
     RunEventPage,
     RunView,
     RunViewSnapshot,
+    SurfaceRevision,
     SurfaceSummary,
 )
 from enterprise_agent_platform.domain.records import (
@@ -132,6 +133,35 @@ class RunQueryService:
             retention_floor=facts.retention_floor,
             resync_required=False,
             events=selected,
+        )
+
+    async def get_surface_revision(
+        self,
+        tenant_id: str,
+        run_id: str,
+        surface_id: str,
+        revision: int | None,
+    ) -> SurfaceRevision:
+        """Read one immutable A2UI surface revision for the browser SDK."""
+        async with self._store.transaction() as tx:
+            surface = await tx.get_ui_surface(tenant_id, surface_id)
+            if surface is None or surface.run_id != run_id:
+                raise PlatformError("NOT_FOUND", "surface was not found for this run")
+            if surface.status != "ACTIVE" or surface.current_revision is None:
+                raise PlatformError("NOT_FOUND", "surface has no published revision")
+            selected = revision if revision is not None else surface.current_revision
+            record = await tx.get_ui_surface_revision(tenant_id, surface_id, selected)
+            if record.run_id != run_id:
+                raise PlatformError("NOT_FOUND", "surface revision does not belong to this run")
+        return SurfaceRevision(
+            schema_version="a2ui-surface-revision/v0.9.1",
+            surface_id=record.surface_id,
+            run_id=record.run_id,
+            revision=record.revision,
+            source_attempt_id=record.source_attempt_id,
+            source_event_seq=record.source_event_seq,
+            document=record.document,
+            checksum=record.checksum,
         )
 
     async def _read_facts(self, tenant_id: str, run_id: str) -> _ProjectionFacts:

@@ -1,16 +1,19 @@
-"schema_version":"enterprise-event/v1",
-"event_id":"evt_ee1",
-"tenant_id":"tenant_demo"
-"run_id":"run_demo",
-"event_seq":1,
-"event_type":"ui.surface.committed",
-"occurred_at":"2026-08-07T00:00:00Z",
-"producer_service":"ui-surface-service",
-"attempt_id":"attempt_001",
-"causation_event_id":null,
-"trace_id":"trace_001",
-"payload_schema":"a2ui-surface/vo.9.1",
-"payload":{
-"kind":"ui.surface.committed",
-    "surface_id":"surface_summary",
-"revision":1
+{
+  "schema_version": "enterprise-event/v1",
+  "event_id": "evt_001",
+  "tenant_id": "tenant_demo",
+  "run_id": "run_demo",
+  "event_seq": 1,
+  "event_type": "ui.surface.committed",
+  "occurred_at": "2026-08-07T00:00:00Z",
+  "producer_service": "control-plane",
+  "payload_schema": "a2ui-surface/v0.9.1",
+  "payload": {
+    "kind": "ui.surface.committed",
+    "surface_id": "surface_summary",
+    "revision": 1
+  },
+  "attempt_id": "attempt_001",
+  "causation_event_id": null,
+  "trace_id": "trace_001"
+}

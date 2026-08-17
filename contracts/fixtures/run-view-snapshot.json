@@ -1,34 +1,48 @@
-"run_id":"run_demo",
-"status":"RUNNING",
-S "watermark":4,
-"view":{
-"run_id":"run_demo",
-"parent_run_id":null,
-"workflow_type":"synthetic-analysis"
-"intent":"Analyze failure patterns",
-"status":"RUNNING",
-"status_reason":null,
-"version":2,
-"created_at":"2026-08-07T00:00:002",
-"ended_at":null,
-"execution_units":
-    "execution_unit_id":"unit_primary",
-    "role":"primary",
-    "status":"EXECUTING",
-    "version":2
-"attempts":
-    "attempt_id":"attempt_001",
-    "execution_unit_id":"unit_primary"
-    "step_id":null,
-    "status":"RUNNING",
-    "version":2,
-    "started_at":"2026-08-07T00:00:03Z"
-    "ended_at":null
-"current_step":null,
-"approvals":[l,
-"artifacts":[],
-"surfaces":[
-    "surface_id":"surface_summary"
-    "catalog_id":"business-analysis/v1"
-    "revision":1
-    watermark":
+{
+  "schema_version": "run-view-snapshot/v1",
+  "run_id": "run_demo",
+  "status": "RUNNING",
+  "watermark": 4,
+  "view": {
+    "run_id": "run_demo",
+    "parent_run_id": null,
+    "workflow_type": "synthetic-analysis",
+    "intent": "Analyze failure patterns",
+    "status": "RUNNING",
+    "status_reason": null,
+    "version": 2,
+    "created_at": "2026-08-07T00:00:00Z",
+    "updated_at": "2026-08-07T00:00:03Z",
+    "ended_at": null,
+    "execution_units": [
+      {
+        "execution_unit_id": "unit_primary",
+        "role": "primary",
+        "status": "EXECUTING",
+        "version": 2
+      }
+    ],
+    "attempts": [
+      {
+        "attempt_id": "attempt_001",
+        "execution_unit_id": "unit_primary",
+        "step_id": null,
+        "status": "RUNNING",
+        "version": 2,
+        "started_at": "2026-08-07T00:00:03Z",
+        "ended_at": null
+      }
+    ],
+    "current_step": null,
+    "approvals": [],
+    "artifacts": [],
+    "surfaces": [
+      {
+        "surface_id": "surface_summary",
+        "catalog_id": "public-catalog",
+        "revision": 1
+      }
+    ],
+    "watermark": 4
+  }
+}

@@ -91,6 +91,7 @@ from enterprise_agent_platform import (
 | GET | /v1/runs/{run_id} | 查询持久化 RunViewSnapshot 与 ETag |
 | GET | /v1/runs/{run_id}/events | 按 after_event_seq 分页重放事件 |
 | GET | /v1/runs/{run_id}/events/stream | SSE 增量流，支持 Last-Event-ID |
+| GET | /v1/runs/{run_id}/surfaces/{surface_id} | 读取一个不可变 A2UI surface revision（默认最新，可用 ?revision= 指定） |
 | POST | /v1/runs/{run_id}/cancel | 需要 If-Match，提交取消意图 |
 | POST | /v1/runs/{run_id}/effects/{effect_id}/recover | 需要 effects:recover、If-Match 和 Idempotency-Key，保留旧 FAILED Effect 并请求新 Attempt 重新规划 |
 | POST | /v1/runs/{run_id}/actions | 处理 Surface-bound UI Action；需显式组装 handler |

@@ -1,14 +1,18 @@
-"schema_version":"effect-capabi tity/v1",
-"token_id":"effect_token_eo1",
-"tenant_id":"tenant_demo",
-"effect_id":"effect_oo1",
-"approval_id":"approval_001",
-"request_digest":"sha256:request",
-"tool_name":"issue.create",
-"tooL_version":"v1",
-"tool_spec_digest":"sha256:777777777777777777777777777777777777777777777777777777777777777"
-"connector_name":"issue-tracker",
-"canonical_target":"issue-project:demo",
-"scopes":["issue:write"],
-"audience":"effect-executor",
-"expires_at":"2026-08-07T01:00:00z"
+{
+  "schema_version": "effect-capability/v1",
+  "token_id": "effect_token_001",
+  "tenant_id": "tenant_demo",
+  "effect_id": "effect_001",
+  "approval_id": "approval_001",
+  "request_digest": "sha256:request",
+  "tool_name": "issue.create",
+  "tool_version": "v1",
+  "tool_spec_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+  "connector_name": "issue-tracker",
+  "canonical_target": "issue-project:demo",
+  "scopes": [
+    "issue:write"
+  ],
+  "audience": "effect-executor",
+  "expires_at": "2026-08-07T01:00:00Z"
+}

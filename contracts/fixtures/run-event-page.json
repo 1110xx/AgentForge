@@ -1,17 +1,67 @@
-"schema_version":"run-event-page/v1""
-"run_id":"run_demo"
-"after_event_seq":1,
-"watermark":4,
-"retention_fleor":
-"resync_required":false,
-"events":[
-    "schema_version":"enterprise-event/v1",
-    "event_id":"evt_0e2"
-    "tenant_id':"tenant-demo"
-    "run_id":"run_demo",
-    "event_seq":2,
-    "event_type":"run.status.changed",
-    "occurred_at":"2026-08-07T00:00:02Z"
-    "producerservice":"run-service"s,
-    "payload_schema":"run-status/vi",
-    "payload":{"kind":"run.status.changed","previous":"QUEUED","current""RUNNING")
+{
+  "schema_version": "run-event-page/v1",
+  "run_id": "run_demo",
+  "after_event_seq": 1,
+  "watermark": 4,
+  "retention_floor": 0,
+  "resync_required": false,
+  "events": [
+    {
+      "schema_version": "enterprise-event/v1",
+      "event_id": "evt_002",
+      "tenant_id": "tenant_demo",
+      "run_id": "run_demo",
+      "event_seq": 2,
+      "event_type": "run.status.changed",
+      "occurred_at": "2026-08-07T00:00:02Z",
+      "producer_service": "control-plane",
+      "payload_schema": "run-status/v1",
+      "payload": {
+        "kind": "run.status.changed",
+        "previous": "QUEUED",
+        "current": "RUNNING"
+      },
+      "attempt_id": null,
+      "causation_event_id": null,
+      "trace_id": null
+    },
+    {
+      "schema_version": "enterprise-event/v1",
+      "event_id": "evt_003",
+      "tenant_id": "tenant_demo",
+      "run_id": "run_demo",
+      "event_seq": 3,
+      "event_type": "attempt.lifecycle",
+      "occurred_at": "2026-08-07T00:00:03Z",
+      "producer_service": "control-plane",
+      "payload_schema": "attempt-lifecycle/v1",
+      "payload": {
+        "kind": "attempt.lifecycle",
+        "attempt_id": "attempt_001",
+        "status": "RUNNING"
+      },
+      "attempt_id": "attempt_001",
+      "causation_event_id": null,
+      "trace_id": null
+    },
+    {
+      "schema_version": "enterprise-event/v1",
+      "event_id": "evt_004",
+      "tenant_id": "tenant_demo",
+      "run_id": "run_demo",
+      "event_seq": 4,
+      "event_type": "ui.surface.committed",
+      "occurred_at": "2026-08-07T00:00:04Z",
+      "producer_service": "control-plane",
+      "payload_schema": "a2ui-surface/v0.9.1",
+      "payload": {
+        "kind": "ui.surface.committed",
+        "surface_id": "surface_summary",
+        "revision": 1
+      },
+      "attempt_id": "attempt_001",
+      "causation_event_id": null,
+      "trace_id": null
+    }
+  ]
+}

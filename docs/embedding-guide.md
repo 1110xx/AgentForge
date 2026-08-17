@@ -286,6 +286,8 @@ Surface revision 包含：
 - source Attempt 和 source event seq；
 - canonical document 和 checksum。
 
+浏览器 SDK 通过 `GET /v1/runs/{run_id}/surfaces/{surface_id}`（可选 `?revision=N`）读取不可变 revision，并在 `ui.surface.committed` 事件后按需重新拉取（SDK 的 RunProjectionStore 只记录 surface_id/revision，文档按提交顺序异步获取）。
+
 业务页面不得自行把模型文本拼成 HTML，也不要绕过 validator 直接调用动态组件 registry。
 
 ### 6.2 Approval Action

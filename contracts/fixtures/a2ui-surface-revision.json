@@ -1,8 +1,19 @@
-"schema_version":"a2ui-surface-revision/vo.9.1",
-"surface_id":"surface_summary"
-"run_id":"run_demo"
-"revision":1,
-"source_attempt_id":"attempt_0o1",
-"source_event_seq":1,
-"document":("component":"EvidenceSummary","data_ref":"evidence:oo1"),
-"checksum":"sha256:surface"
+{
+  "schema_version": "a2ui-surface-revision/v0.9.1",
+  "surface_id": "surface_summary",
+  "run_id": "run_demo",
+  "revision": 1,
+  "source_attempt_id": "attempt_001",
+  "source_event_seq": 1,
+  "document": {
+    "component": "EvidenceSummary",
+    "props": {
+      "title": "Synthetic failure evidence",
+      "data_ref": "artifact:artifact_001:1",
+      "items": [
+        "submission:demo:A1:sha256:evidence"
+      ]
+    }
+  },
+  "checksum": "sha256:surface"
+}
