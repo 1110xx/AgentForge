@@ -1,0 +1,451 @@
+{
+  "$defs": {
+    "ApprovalState": {
+      "enum": [
+        "PENDING",
+        "APPROVED",
+        "REJECTED",
+        "EXPIRED",
+        "CANCELLED"
+      ],
+      "title": "ApprovalState",
+      "type": "string"
+    },
+    "ApprovalSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_id": {
+          "title": "Approval Id",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/ApprovalState"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "approval_id",
+        "status",
+        "version"
+      ],
+      "title": "ApprovalSummary",
+      "type": "object"
+    },
+    "ArtifactSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "media_type": {
+          "title": "Media Type",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "name",
+        "media_type",
+        "version"
+      ],
+      "title": "ArtifactSummary",
+      "type": "object"
+    },
+    "AttemptState": {
+      "enum": [
+        "CREATED",
+        "PROVISIONING",
+        "CLAIMED",
+        "RUNNING",
+        "CHECKPOINTING",
+        "CHECKPOINTED_FOR_APPROVAL",
+        "SUCCEEDED",
+        "FAILED",
+        "LOST",
+        "CANCELLED"
+      ],
+      "title": "AttemptState",
+      "type": "string"
+    },
+    "AttemptSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "ended_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ended At"
+        },
+        "execution_unit_id": {
+          "title": "Execution Unit Id",
+          "type": "string"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Started At"
+        },
+        "status": {
+          "$ref": "#/$defs/AttemptState"
+        },
+        "step_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Step Id"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "attempt_id",
+        "execution_unit_id",
+        "step_id",
+        "status",
+        "version",
+        "started_at",
+        "ended_at"
+      ],
+      "title": "AttemptSummary",
+      "type": "object"
+    },
+    "ExecutionUnitState": {
+      "enum": [
+        "IDLE",
+        "DISPATCHABLE",
+        "EXECUTING",
+        "WAITING_APPROVAL",
+        "NEEDS_ATTENTION",
+        "RECOVERING",
+        "SUCCEEDED",
+        "FAILED",
+        "CANCELLED"
+      ],
+      "title": "ExecutionUnitState",
+      "type": "string"
+    },
+    "ExecutionUnitSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "execution_unit_id": {
+          "title": "Execution Unit Id",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/ExecutionUnitState"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "execution_unit_id",
+        "role",
+        "status",
+        "version"
+      ],
+      "title": "ExecutionUnitSummary",
+      "type": "object"
+    },
+    "RunState": {
+      "enum": [
+        "QUEUED",
+        "RUNNING",
+        "WAITING_APPROVAL",
+        "RECOVERING",
+        "CANCEL_REQUESTED",
+        "NEEDS_ATTENTION",
+        "SUCCEEDED",
+        "FAILED",
+        "CANCELLED"
+      ],
+      "title": "RunState",
+      "type": "string"
+    },
+    "RunView": {
+      "additionalProperties": false,
+      "properties": {
+        "approvals": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ApprovalSummary"
+          },
+          "title": "Approvals",
+          "type": "array"
+        },
+        "artifacts": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactSummary"
+          },
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "attempts": {
+          "items": {
+            "$ref": "#/$defs/AttemptSummary"
+          },
+          "title": "Attempts",
+          "type": "array"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "current_step": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StepSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "ended_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ended At"
+        },
+        "execution_units": {
+          "items": {
+            "$ref": "#/$defs/ExecutionUnitSummary"
+          },
+          "title": "Execution Units",
+          "type": "array"
+        },
+        "intent": {
+          "title": "Intent",
+          "type": "string"
+        },
+        "parent_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent Run Id"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/RunState"
+        },
+        "status_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Status Reason"
+        },
+        "surfaces": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/SurfaceSummary"
+          },
+          "title": "Surfaces",
+          "type": "array"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "watermark": {
+          "minimum": 0,
+          "title": "Watermark",
+          "type": "integer"
+        },
+        "workflow_type": {
+          "title": "Workflow Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "parent_run_id",
+        "workflow_type",
+        "intent",
+        "status",
+        "status_reason",
+        "version",
+        "created_at",
+        "updated_at",
+        "ended_at",
+        "execution_units",
+        "attempts",
+        "watermark"
+      ],
+      "title": "RunView",
+      "type": "object"
+    },
+    "StepState": {
+      "enum": [
+        "PENDING",
+        "ACTIVE",
+        "WAITING_APPROVAL",
+        "NEEDS_ATTENTION",
+        "SUCCEEDED",
+        "FAILED",
+        "SKIPPED",
+        "CANCELLED"
+      ],
+      "title": "StepState",
+      "type": "string"
+    },
+    "StepSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/StepState"
+        },
+        "step_id": {
+          "title": "Step Id",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "step_id",
+        "name",
+        "status",
+        "version"
+      ],
+      "title": "StepSummary",
+      "type": "object"
+    },
+    "SurfaceSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "catalog_id": {
+          "title": "Catalog Id",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "surface_id": {
+          "title": "Surface Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "surface_id",
+        "catalog_id",
+        "revision"
+      ],
+      "title": "SurfaceSummary",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "run-view-snapshot/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/RunState"
+    },
+    "view": {
+      "$ref": "#/$defs/RunView"
+    },
+    "watermark": {
+      "minimum": 0,
+      "title": "Watermark",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "run_id",
+    "status",
+    "watermark",
+    "view"
+  ],
+  "title": "RunViewSnapshot",
+  "type": "object"
+}

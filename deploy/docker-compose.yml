@@ -1,0 +1,165 @@
+name: enterprise-agent-platform
+
+x-control-image: &control-image
+  build:
+    context: ..
+    dockerfile: deploy/images/control-plane.Dockerfile
+    args:
+      PYTHON_BASE_IMAGE: "${PYTHON_BASE_IMAGE:-python:3.13-slim-bookworm}"
+      UV_INDEX_URL: "${UV_INDEX_URL:-}"
+  image: enterprise-agent-platform/control-plane:local
+
+x-platform-environment: &platform-environment
+  AGENT_PLATFORM_DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-agent_platform}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-agent_platform}"
+  AGENT_PLATFORM_NATS_URL: "nats://nats:4222"
+  AGENT_PLATFORM_NATS_STREAM: "${NATS_STREAM:-AGENT_PLATFORM}"
+  AGENT_PLATFORM_S3_ENDPOINT: "http://minio:9000"
+  AGENT_PLATFORM_S3_BUCKET: "${MINIO_BUCKET:-agent-artifacts}"
+  AGENT_PLATFORM_S3_ACCESS_KEY_ID: "${MINIO_ROOT_USER:-agent_platform}"
+  AGENT_PLATFORM_S3_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD}"
+  AGENT_PLATFORM_CONTAINER_FACTORY: "${AGENT_PLATFORM_CONTAINER_FACTORY:-}"
+  AGENT_PLATFORM_WORKER_FACTORY: "${AGENT_PLATFORM_WORKER_FACTORY:-}"
+  AGENT_PLATFORM_SANDBOX_SERVICE_ACCOUNT: "${AGENT_PLATFORM_SANDBOX_SERVICE_ACCOUNT:-agent-platform-sandbox}"
+
+services:
+  postgres:
+    image: "${POSTGRES_IMAGE:-postgres:17-alpine}"
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-agent_platform}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_DB: "${POSTGRES_DB:-agent_platform}"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent_platform} -d ${POSTGRES_DB:-agent_platform}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    security_opt: ["no-new-privileges:true"]
+
+  nats:
+    image: "${NATS_IMAGE:-nats:2.11-alpine}"
+    command: ["--jetstream", "--config", "/etc/nats/nats.conf"]
+    volumes:
+      - ./config/nats.conf:/etc/nats/nats.conf:ro
+      - nats-data:/data/jetstream
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8222/healthz > /dev/null"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    security_opt: ["no-new-privileges:true"]
+
+  minio:
+    image: "${MINIO_IMAGE:-minio/minio:RELEASE.2025-04-22T22-12-26Z}"
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-agent_platform}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live > /dev/null"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    security_opt: ["no-new-privileges:true"]
+
+  minio-init:
+    image: "${MINIO_MC_IMAGE:-minio/mc:RELEASE.2025-04-16T18-13-26Z}"
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-agent_platform}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}"
+      MINIO_BUCKET: "${MINIO_BUCKET:-agent-artifacts}"
+    volumes:
+      - ./config/minio-lifecycle.json:/config/minio-lifecycle.json:ro
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}";
+        mc mb --ignore-existing "local/$${MINIO_BUCKET}";
+        mc version enable "local/$${MINIO_BUCKET}";
+        mc ilm import "local/$${MINIO_BUCKET}" < /config/minio-lifecycle.json
+
+  migrate:
+    <<: *control-image
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *platform-environment
+    working_dir: /app/backend
+    command: ["/app/backend/.venv/bin/alembic", "-c", "alembic.ini", "upgrade", "head"]
+    restart: "no"
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+
+  api:
+    <<: *control-image
+    profiles: ["runtime"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      nats:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment: *platform-environment
+    command: ["/app/backend/.venv/bin/python", "-m", "enterprise_agent_platform.platform.entrypoint", "api"]
+    ports: ["127.0.0.1:8080:8080"]
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+
+  worker:
+    <<: *control-image
+    profiles: ["runtime"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      nats:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment: *platform-environment
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+
+  test-runner:
+    profiles: ["test"]
+    build:
+      context: ..
+      dockerfile: deploy/images/control-plane.Dockerfile
+      args:
+        PYTHON_BASE_IMAGE: "${PYTHON_BASE_IMAGE:-python:3.13-slim-bookworm}"
+        UV_INDEX_URL: "${UV_INDEX_URL:-}"
+        INSTALL_DEV: "true"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      nats:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *platform-environment
+      AGENT_PLATFORM_L2_DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-agent_platform}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-agent_platform}"
+      AGENT_PLATFORM_L2_NATS_URL: "nats://nats:4222"
+      AGENT_PLATFORM_L2_S3_ENDPOINT: "http://minio:9000"
+      AGENT_PLATFORM_L2_S3_ACCESS_KEY_ID: "${MINIO_ROOT_USER:-agent_platform}"
+    working_dir: /app/backend
+    volumes:
+      - ../backend/tests:/app/backend/tests:ro
+    command: ["/app/backend/.venv/bin/pytest", "-q", "tests/integration/test_compose_stack.py"]
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  postgres-data: {}
+  nats-data: {}
+  minio-data: {}

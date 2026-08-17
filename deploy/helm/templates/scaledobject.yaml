@@ -1,0 +1,20 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: agent-platform-orchestrator
+  namespace: agent-platform-control
+spec:
+  scaleTargetRef:
+    name: agent-platform-orchestrator
+  minReplicaCount: {{ .Values.autoscaling.minReplicas }}
+  maxReplicaCount: {{ .Values.autoscaling.maxReplicas }}
+  pollingInterval: 15
+  cooldownPeriod: 300
+  triggers:
+    - type: nats-jetstream
+      metadata:
+        natsServerMonitoringEndpoint: "{{ .Values.dependencies.nats.monitoringEndpoint }}"
+        account: "$G"
+        stream: "{{ .Values.dependencies.nats.stream }}"
+        consumer: agent-platform-orchestrator
+        lagThreshold: "{{ .Values.autoscaling.pendingMessagesPerReplica }}"

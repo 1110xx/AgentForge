@@ -1,0 +1,59 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action_ref": {
+      "title": "Action Ref",
+      "type": "string"
+    },
+    "client_action_id": {
+      "title": "Client Action Id",
+      "type": "string"
+    },
+    "displayed_digest": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Displayed Digest"
+    },
+    "host_context_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Host Context Ref"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "surface_id": {
+      "title": "Surface Id",
+      "type": "string"
+    },
+    "surface_revision": {
+      "minimum": 1,
+      "title": "Surface Revision",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "run_id",
+    "surface_id",
+    "surface_revision",
+    "action_ref",
+    "client_action_id"
+  ],
+  "title": "UiActionCommand",
+  "type": "object"
+}

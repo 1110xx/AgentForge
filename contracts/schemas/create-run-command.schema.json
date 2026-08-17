@@ -1,0 +1,50 @@
+{
+  "$defs": {
+    "JsonValue": {}
+  },
+  "additionalProperties": false,
+  "properties": {
+    "host_context_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Host Context Ref"
+    },
+    "intent": {
+      "title": "Intent",
+      "type": "string"
+    },
+    "parameters": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "title": "Parameters",
+      "type": "object"
+    },
+    "resource_refs": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Resource Refs",
+      "type": "array"
+    },
+    "workflow_type": {
+      "title": "Workflow Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "workflow_type",
+    "intent",
+    "resource_refs"
+  ],
+  "title": "CreateRunCommand",
+  "type": "object"
+}

@@ -1,0 +1,19 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: agent-platform-e2e
+networking:
+  disableDefaultCNI: true
+  podSubnet: 10.244.0.0/16
+  serviceSubnet: 10.96.0.0/16
+  apiServerAddress: 127.0.0.1
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:5001"]
+      endpoint = ["http://agent-platform-registry:5000"]
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.32.0
+  - role: worker
+    image: kindest/node:v1.32.0
+  - role: worker
+    image: kindest/node:v1.32.0

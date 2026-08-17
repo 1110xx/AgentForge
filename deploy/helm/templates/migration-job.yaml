@@ -1,0 +1,56 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: agent-platform-migrate
+  namespace: agent-platform-control
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent-platform-migrate
+    spec:
+      serviceAccountName: agent-platform-worker
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      priorityClassName: agent-platform-control-critical
+      containers:
+        - name: migrate
+          image: "{{ .Values.images.controlPlane.repository }}@{{ .Values.images.controlPlane.digest }}"
+          imagePullPolicy: IfNotPresent
+          command: ["/app/backend/.venv/bin/alembic"]
+          args: ["-c", "/app/backend/alembic.ini", "upgrade", "head"]
+          env:
+            - name: AGENT_PLATFORM_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ .Values.secrets.externalSecretName }}"
+                  key: AGENT_PLATFORM_DATABASE_URL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

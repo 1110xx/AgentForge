@@ -1,0 +1,65 @@
+apiVersion:monitoring.coreos.com/v1
+kind:PrometheusRule
+metadata:
+name:enterprise-agent-platform
+namespace:agent-platform-control
+spec:
+    groups:
+    name:agent-platform,correctness
+        interval:15s
+        rules:
+        alert:AgentPlatformUnauthorizedwrite
+        expr:increase(agent_platform_correctness_violation_total(reason_class="unauthorized_write"}[1m])>0
+        for:0m
+        labels:(severity:page)
+        annotations:
+            summary: Unauthorized wRITE crossed the Tool Gateway boundary.
+        alert:AgentPlatformDuplicateEffect
+        for:om
+        labels:(severity:page)
+        annotations:
+            summary:A committed external Effect was observed more than once.
+        alert:AgentPlatformAuditBypass
+        expr:increase(agent_platform_correctness_violation_total(reason_class="audit_bypass"}[1m])>0
+            for:0m
+            labels:(severity:page}
+            annotations:
+            summary:A protected state change lacks its atomicaudit fact.
+        alert:AgentPlatformStalefencewrite
+            expr:increase(agent_platform_correctness_violation_total(reason_class="stale_fence_write"}[1m])>0
+            for:0m
+            labels:{severity:page)
+            annotations:
+            summary:A stale Attempt generation changed durable state.
+            alert:AgentPlatformCommittedDataloss
+            expr:sum(increase(agent_platform_correctness_violation_total(reason_class="committed_checkpoint_lost|artifact_checksum_mismatch")[1ml))
+            for:0m
+            labels:(severity:page)
+            annotations:
+            summary:A committed Checkpoint or Artifact cannot be read and verified.
+            alert:AgentPlatformCrossTenantAccess
+            expr:increase(agent_platform_correctness_violation_total{reason_class="cross_tenant_access"}[1m])>0
+            for:0m
+            labels:(severity:page}
+            annotations:
+            summary:A request crossed its trusted tenant boundary.
+            alert:AgentPlatformMultipleActiveAttempts
+            expr:increase(agent_platform_correctness_violation_total{reason_class="multiple_active_attempts">{lm])>
+            for:om
+            labels:(severity:page)
+            annotations:
+            summary:One execution unit has multiple concurrently active Attempts.
+        name:agent-platform.slo-burn
+        interval:30s
+        rules:
+            alert:AgentPlatformAvailabilityBurnRateFast
+            expr:agent_platform:http_error_ratio_5m>(14.4*0.001)
+            for:2m
+            labels:(severity:page)
+            annotations:
+            alert:AgentPlatformAvailabilityBurnRateSlow
+            expr:agent_platform:http_error_ratio_6h>(6*0.001)
+            for:15m
+            labels:{severity:page}
+            annotations:
+            summary: API availability is burning the monthly error budget at 6x.

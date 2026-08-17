@@ -1,0 +1,53 @@
+E "name":"enterprise-agent-platform-frontend", "version":"0.1.0",
+        "private":true,
+        "type":"module",
+        "packageManager":"npme11.12.1",
+        "engines":{
+        "node"":">=22"
+        "workspaces":
+        "packages/*",
+        "examples/*"
+        DDebug
+        "scripts":
+        "lint":"estint ." "test":"vitest", buitd:npmrun build@platform/agent-ui-protocol s&npm run build -w @platform/agent-ui-client s&npm run build-w@platform/agent-ui-catalog snpm run build -w @platform/agent-ui-react snpmrun build-@platform/embedded-host-example
+        "devDependencies":{ typecheck:npm run build w@platform/agent-ui-protocol &&npm run build -w@platform/agent-ui-client & npmrun build-w@platform/agent-ui-catalog &npm run build @platform/agent-ui-react S6npm run typecheck-w@platform/embedded-host-e
+        "@eslint/js":"g.32.0",
+        "etesting-Library/jest-dom":"7.e.o",
+        @testing-Library/react":"16.3.2",
+sZ "etypes/node":"24.1.0", "etesting-Library/user-event":"14.6.3",
+        "etypes/react":"19.2.18",
+        "@types/react-dom":"19.2.4",
+        "@vitejs/plugin-react":"5.1.4",
+        "eslint":"g.32.0",
+        "s0o:"29.1.1",
+        "react":"19.2.8",
+EE "react-dom":"19.2.8", "typescript":"5.8.3",
+SE "typescript-eslint":"8.38.o", "vite:*7.3.6",
+LE "vitest":"3.2.7"
+                                        QLn1,Col1
+    enterprise-agent-ptatform-frontend" :"0.1.0",
+    :true,
+    module"
+    lanager":"npma11.12.1",
+    es":
+    ies/*"
+    es/*"
+    DDebug
+        "eslint." "vitest", "npmrun build@platform/agent-ui-protocol s&npmrun build -w @platform/agent-ui-client s&npmrun build-w@platform/agent-ui-catalog s&npm run build -w@platform/agent-ui-react sunpmrun build-@platform/embedded-host-example,
+    eck:nprunbuildw@platform/agent-ui-protocol &npmrun build-w@platform/agent-ui-client s& npmrun build-w @platform/agent-ui-catalog s&npm run build -w @platform/agent-ui-react s& npmrun typecheck-@platform/embedded-host-example dencies":
+    t/js:9.32.0"
+    ng-Library/jest-dom:"7.e.e",
+    ng-Library/react":"16.3.2",
+    ng-Library/user-event":"14.6.3", /node":"24.1.0",
+    /react-dom":"19.2.4",
+    s/plugin-react":"5.1.4",
+    9.32.
+    :29.1.1
+    19.2.8″
+    dom":"19.2.8",
+    ript":"5.8.3",
+    ript-eslint":"8.38.0",
+        "7.3.6″,
+    ":3.2.7"
+    @OAO
+                                        Ln1,Col1Space2

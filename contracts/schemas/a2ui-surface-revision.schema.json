@@ -1,0 +1,58 @@
+{
+  "$defs": {
+    "JsonValue": {}
+  },
+  "additionalProperties": false,
+  "properties": {
+    "checksum": {
+      "title": "Checksum",
+      "type": "string"
+    },
+    "document": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "title": "Document",
+      "type": "object"
+    },
+    "revision": {
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "a2ui-surface-revision/v0.9.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_attempt_id": {
+      "title": "Source Attempt Id",
+      "type": "string"
+    },
+    "source_event_seq": {
+      "minimum": 1,
+      "title": "Source Event Seq",
+      "type": "integer"
+    },
+    "surface_id": {
+      "title": "Surface Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "surface_id",
+    "run_id",
+    "revision",
+    "source_attempt_id",
+    "source_event_seq",
+    "document",
+    "checksum"
+  ],
+  "title": "SurfaceRevision",
+  "type": "object"
+}

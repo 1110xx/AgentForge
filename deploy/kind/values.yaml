@@ -1,0 +1,47 @@
+images:
+  controlPlane:
+    repository: localhost:5001/enterprise-agent-platform/control-plane
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  runtime:
+    repository: localhost:5001/enterprise-agent-platform/runtime
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+controlPlane:
+  replicas: 3
+  apiPort: 8080
+  kubernetesApiCidr: 10.96.0.1/32
+  dependencyEgressCidr: 10.0.0.0/8
+
+dependencies:
+  postgresql:
+    endpoint: postgresql+asyncpg://agent_platform:secret@postgres.agent-platform-dependencies.svc:5432/agent_platform
+  nats:
+    endpoint: nats://nats.agent-platform-dependencies.svc:4222
+    monitoringEndpoint: http://nats.agent-platform-dependencies.svc:8222
+    stream: AGENT_PLATFORM
+    streamReplicas: 3
+  s3:
+    endpoint: http://minio.agent-platform-dependencies.svc:9000
+    bucket: agent-artifacts
+  oidc:
+    issuer: http://oidc.agent-platform-dependencies.svc:8080/default
+secrets:
+  externalSecretName: agent-platform-dependencies
+  storeRefName: agent-platform-kind-dependencies
+  storeRefKind: SecretStore
+  remoteKey: placeholder
+
+integration:
+  containerFactory: enterprise_integration.agent_platform:create_container
+  workerFactory: enterprise_integration.agent_platform:run_worker
+
+sandbox:
+  namespace: agent-platform-sandbox
+  serviceAccountName: agent-platform-sandbox
+  runtimeClassName: ""
+  maxActiveAttempts: 10
+
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 20
+  pendingMessagesPerReplica: "5"

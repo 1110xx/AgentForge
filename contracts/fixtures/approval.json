@@ -1,0 +1,15 @@
+"schema_version":"api-error/vi",
+"COde":"STALE_SURFACEREVISTON",
+"message":"The displayed surface is stale; refresh and retry.",
+"trace_id":"trace_ce1",
+"retryable":true,
+"details":{"current_revision":"2")
+"schema_version":"approval/vi"
+"approval_id":"approval ee1",
+"run_id":"run_demo"
+"request_digest":"sha256:request",
+"status":"APPROVED",
+"version":2,
+"canonical_request ref":"proposal:o01",
+"expires_at":"2026-08-08T00:00:007"
+"decided_by":"user:reviewer-demo"

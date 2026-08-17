@@ -1,0 +1,10 @@
+{
+  "Rules": [
+    {
+      "ID": "retain-noncurrent-artifact-versions",
+      "Status": "Enabled",
+      "Filter": {"Prefix": ""},
+      "NoncurrentVersionExpiration": {"NoncurrentDays": 30}
+    }
+  ]
+}

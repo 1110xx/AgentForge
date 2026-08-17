@@ -1,0 +1,43 @@
+[project]
+name="enterprise-agent-platform"
+version="0.1.0"
+requires-python =">=3.12"
+dependencies=[
+"alembic>=1.14,<2",
+    "asyncpg>=0.30,<1",
+    "boto3>=1.35,<2",
+    "cryptography>=44,<47",
+    "fastapi>=0.115,<1",
+    "kubernetes>=31,<35",
+    "nats-py>=2.9,<3",
+    "opentelemetry-api>=1.29,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.29,<2",
+    "opentelemetry-sdk>=1.29,<2",
+    "pydantic>=2.0",
+    "pydantic-settings>=2,<3",
+    "prometheus-client>=0.21,<1",
+    "sqlalchemy[asyncio]>=2,<3",
+    "uvicorn>=0.34,<1",
+]
+[build-system]
+requires=["hatchling>=1.25"]
+build-backend="hatchling.build"
+[dependency-groups]
+dev = [
+    "aiosqlite>=0.20,<1",
+    "build>=1.2",
+    "hatchling>=1.25,<2",
+    "httpx>=0.28,<1",
+    "jsonschema>=4.23,<5",
+    "pyyaml>=6,<7",
+    "pytest>=8.0",
+    "ruff>=0.8",
+]
+[tool.hatch.build.targets.wheel]
+packages=["src/enterprise_agent_platform"]
+[tool.pytest.ini_options]
+testpaths=["tests"]
+addopts="-pno:cacheprovider"
+    [tool.ruff]
+target-version = "py312"
+line-length=100

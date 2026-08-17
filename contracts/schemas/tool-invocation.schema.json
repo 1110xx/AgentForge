@@ -1,0 +1,127 @@
+{
+  "$defs": {
+    "ToolInvocationState": {
+      "enum": [
+        "CREATED",
+        "AUTHORIZED",
+        "EXECUTING",
+        "UNKNOWN",
+        "SUCCEEDED",
+        "FAILED",
+        "REJECTED",
+        "CANCELLED"
+      ],
+      "title": "ToolInvocationState",
+      "type": "string"
+    },
+    "ToolRiskClass": {
+      "enum": [
+        "LOCAL",
+        "READ",
+        "WRITE"
+      ],
+      "title": "ToolRiskClass",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "attempt_id": {
+      "title": "Attempt Id",
+      "type": "string"
+    },
+    "call_id": {
+      "title": "Call Id",
+      "type": "string"
+    },
+    "ended_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ended At"
+    },
+    "generation": {
+      "minimum": 1,
+      "title": "Generation",
+      "type": "integer"
+    },
+    "grant_id": {
+      "title": "Grant Id",
+      "type": "string"
+    },
+    "input_digest": {
+      "title": "Input Digest",
+      "type": "string"
+    },
+    "resource_ref": {
+      "title": "Resource Ref",
+      "type": "string"
+    },
+    "result_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Result Ref"
+    },
+    "risk_class": {
+      "$ref": "#/$defs/ToolRiskClass"
+    },
+    "schema_version": {
+      "const": "tool-invocation/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "started_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Started At"
+    },
+    "status": {
+      "$ref": "#/$defs/ToolInvocationState"
+    },
+    "tool_name": {
+      "title": "Tool Name",
+      "type": "string"
+    },
+    "tool_spec_version": {
+      "title": "Tool Spec Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "call_id",
+    "attempt_id",
+    "generation",
+    "tool_name",
+    "tool_spec_version",
+    "grant_id",
+    "input_digest",
+    "status",
+    "risk_class",
+    "resource_ref"
+  ],
+  "title": "ToolInvocation",
+  "type": "object"
+}

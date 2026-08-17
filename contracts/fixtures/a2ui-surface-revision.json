@@ -1,0 +1,8 @@
+"schema_version":"a2ui-surface-revision/vo.9.1",
+"surface_id":"surface_summary"
+"run_id":"run_demo"
+"revision":1,
+"source_attempt_id":"attempt_0o1",
+"source_event_seq":1,
+"document":("component":"EvidenceSummary","data_ref":"evidence:oo1"),
+"checksum":"sha256:surface"

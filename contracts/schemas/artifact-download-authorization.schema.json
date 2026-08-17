@@ -1,0 +1,42 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "artifact_id": {
+      "title": "Artifact Id",
+      "type": "string"
+    },
+    "authorization_id": {
+      "title": "Authorization Id",
+      "type": "string"
+    },
+    "download_url": {
+      "title": "Download Url",
+      "type": "string"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "artifact-download-authorization/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "authorization_id",
+    "artifact_id",
+    "version",
+    "download_url",
+    "expires_at"
+  ],
+  "title": "ArtifactDownloadAuthorization",
+  "type": "object"
+}

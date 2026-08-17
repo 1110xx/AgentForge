@@ -1,0 +1,14 @@
+-git
+.gitignore
+.superpowers
+backend/.mypy_cache
+backend/.pytest_cache
+backend/.ruff_cache
+backend/.venv
+backend/**/pycache
+backend/dist
+frontend/node_modules
+frontend/packages/*/dist
+frontend/packages/*/*.tsbuildinfo
+frontend/examples/*/dist
+frontend/examples/*/*.tsbuildinfo

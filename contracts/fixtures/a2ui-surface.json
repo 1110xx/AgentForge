@@ -1,0 +1,7 @@
+"schema_version":"a2ui-surface/vo.9.1",
+"surface_id":"surface_summary"
+"run_id":"run_demo",
+"catalog_id":"public-safe-catalog/v1",
+"revision":1,
+"source_event_seq":1,
+"document":("component":"EvidenceSummary","data_ref":"evidence:001")

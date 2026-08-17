@@ -1,0 +1,176 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: control-default-deny
+  namespace: agent-platform-control
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-default-deny
+  namespace: agent-platform-sandbox
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: control-api-ingress
+  namespace: agent-platform-control
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform-api
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - namespaceSelector:
+            matchLabels:
+              agent.platform/plane: sandbox
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: control-dns-egress
+  namespace: agent-platform-control
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: control-dependencies-egress
+  namespace: agent-platform-control
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: "{{ .Values.controlPlane.dependencyEgressCidr }}"
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 4222
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 4318
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: control-kubernetes-api-egress
+  namespace: agent-platform-control
+spec:
+  podSelector:
+    matchLabels:
+      agent.platform/tokenreview-client: "true"
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: "{{ .Values.controlPlane.kubernetesApiCidr }}"
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: control-orchestrator-kubernetes-api-egress
+  namespace: agent-platform-control
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform-orchestrator
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: "{{ .Values.controlPlane.kubernetesApiCidr }}"
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-dns-egress
+  namespace: agent-platform-sandbox
+spec:
+  podSelector:
+    matchLabels:
+      agent.platform/network-profile: runtime-no-kube-api
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-approved-proxies-egress
+  namespace: agent-platform-sandbox
+spec:
+  podSelector:
+    matchLabels:
+      agent.platform/network-profile: runtime-no-kube-api
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              agent.platform/plane: control
+          podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - agent-platform-api
+                  - agent-platform-model-proxy
+                  - agent-platform-tool-gateway
+                  - agent-platform-artifact-proxy
+                  - agent-platform-otel-collector
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 4318

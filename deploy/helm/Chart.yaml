@@ -1,0 +1,6 @@
+apiVersion: v2
+name: enterprise-agent-platform
+description: Standalone enterprise Agent control plane and isolated Attempt orchestration
+type: application
+version: 0.1.0
+appVersion: 0.1.0

@@ -1,0 +1,15 @@
+.pytest_cache/
+.ruff_cache/
+pycache
+*.py[cod]
+.venv/
+frontend/node_modules/
+frontend/packages/+/dist/
+frontend/**/*.tsbuildinfo
+dist/
+
+# Local tool binaries (kind/helm) pulled for the L3 Kind gate
+.tools/
+
+# OCR-reconstruction debris: corrupted backups kept for reference
+contracts/_ocr-corrupted-backup/
