@@ -1,14 +1,17 @@
-"compileroptions":{
-"target":"ES2022",
-"module":"NodeNext",
-D "moduleResolution":"NodeNext",
-"Lib":["ES222","DON","DOM.Iterable"], "strict":true,
-"nouncheckedIndexedAccess":true,
-"exactoptionalPropertyTypes":true,
-"isolatedModules":true,
-"verbatimModuleSyntax":true,
-"declaration":true,
-"declarationNap":true,
-"sourceMap":true,
-"skipLibcheck":true
-                                        QLn1,Col1Spaces2UTF-8F
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "skipLibCheck": true
+  }
+}
