@@ -114,6 +114,12 @@ class BootstrapResponseModel(StrictModel):
     execution_unit_id: str
     attempt_id: str
     generation: Annotated[int, Field(ge=1)]
+    # Lease facts returned once the HTTP bootstrap activates the Lease
+    # (RESERVED → ACTIVE, Attempt → CLAIMED, Run → RUNNING). The Pod runtime
+    # needs them as CAS prerequisites for heartbeat/turn checkpoints.
+    lease_owner: str = ""
+    lease_version: int = 0
+    expires_at: str = ""
 
 
 class RuntimeSubjectRequest(StrictModel):
@@ -132,6 +138,36 @@ class HeartbeatRequest(RestoreRequest):
     pass
 
 
+class TurnCheckpointRequest(RestoreRequest):
+    """Turn-level (mid-run) Checkpoint commit carrying the Agent snapshot.
+
+    Same runtime subject + lease facts as HeartbeatRequest, plus the
+    pi-agent-core Agent state snapshot persisted at TurnEnd (the safe
+    checkpoint boundary, SDD §5.5).
+    """
+
+    agent_state: dict[str, JsonValue] = Field(default_factory=dict)
+    agent_state_schema_version: Annotated[
+        str, Field(min_length=1, max_length=64)
+    ] = "pi-agent-core/v1"
+
+
+class ModelCallRequest(RuntimeSubjectRequest):
+    """A full LLM call proxied from the Pod runtime (HttpStream).
+
+    Mirrors the PipeStream wire contract: complete message history + tool
+    definitions + sampling options; the Control Plane proxies to the real
+    provider through its RunSessionProvider and returns non-streaming content
+    blocks (text / tool_use / thinking).
+    """
+
+    model: dict[str, JsonValue] = Field(default_factory=dict)
+    system_prompt: str = ""
+    messages: list[dict[str, JsonValue]] = Field(default_factory=list)
+    tools: list[dict[str, JsonValue]] = Field(default_factory=list)
+    options: dict[str, JsonValue] = Field(default_factory=dict)
+
+
 class ReadToolRequest(RuntimeSubjectRequest):
     tool_name: Annotated[str, Field(min_length=1, max_length=255)]
     arguments_ref: Annotated[str, Field(min_length=1, max_length=1024)]
@@ -148,8 +184,21 @@ class ProposeActionRequest(RuntimeSubjectRequest):
     canonical_payload_ref: Annotated[str, Field(min_length=1, max_length=1024)]
 
 
-class FinalCheckpointRequest(RuntimeSubjectRequest):
+class FinalCheckpointRequest(RestoreRequest):
+    """Terminal checkpoint commit: runtime subject + lease facts + summary.
+
+    Extends ``RestoreRequest`` so the Pod can keep signing its CAS writes with
+    the fresh lease facts (owner/version) — the shared commit handler reads
+    them from the ``context`` bundle. ``agent_state`` is accepted for forward
+    compatibility; the HTTP transport currently streams Agent snapshots via
+    turn-level checkpoints instead of inlining them here.
+    """
+
     summary: Annotated[str, Field(min_length=1, max_length=8192)]
+    agent_state: dict[str, JsonValue] = Field(default_factory=dict)
+    agent_state_schema_version: Annotated[
+        str, Field(min_length=1, max_length=64)
+    ] = "http-runtime/v0"
 
 
 class RuntimeFailureRequest(RuntimeSubjectRequest):
@@ -166,6 +215,51 @@ class SurfacePublishRequest(RuntimeSubjectRequest):
 class InternalOperationResult(StrictModel):
     status: str
     result_ref: str | None = None
+
+
+class RestoreResponse(StrictModel):
+    """Full checkpoint payload for the Pod runner to rehydrate its Agent."""
+
+    status: str = "ok"
+    checkpoint_id: str
+    checkpoint_state: str
+    snapshot_state: str | None = None
+    workflow_cursor: dict[str, JsonValue] = Field(default_factory=dict)
+    agent_state: dict[str, JsonValue] = Field(default_factory=dict)
+    agent_state_schema_version: str | None = None
+
+
+class HeartbeatResponse(StrictModel):
+    """Refreshed RuntimeContext (the new lease_version is a CAS prerequisite)."""
+
+    attempt_id: str
+    generation: int
+    pod_uid: str
+    runtime_token: str
+    lease_owner: str
+    lease_version: Annotated[int, Field(ge=1)]
+
+
+class ReadToolResponse(StrictModel):
+    """Resource proxy result returned to the Pod's remote_read_tool."""
+
+    tool_name: str
+    resource_ref: str
+    resolved: dict[str, JsonValue] | None = None
+    content: str
+
+
+class ModelCallResponse(StrictModel):
+    """Non-streaming LLM response (content blocks + stop_reason + usage).
+
+    The Pod's HttpStream translates this back into
+    ``AsyncIterator[AssistantMessageEvent]`` for pi-agent-core (same shape the
+    pipe stream emits).
+    """
+
+    content: list[dict[str, JsonValue]] = Field(default_factory=list)
+    stop_reason: str = "end_turn"
+    usage: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class EffectExecutionResponse(StrictModel):
@@ -255,7 +349,7 @@ def create_internal_router(container: InternalApiContainer) -> APIRouter:
 
     @router.post(
         "/runtime/restore",
-        response_model=InternalOperationResult,
+        response_model=RestoreResponse,
         operation_id="restoreRuntime",
     )
     async def restore(
@@ -271,7 +365,7 @@ def create_internal_router(container: InternalApiContainer) -> APIRouter:
 
     @router.post(
         "/runtime/heartbeat",
-        response_model=InternalOperationResult,
+        response_model=HeartbeatResponse,
         operation_id="heartbeatRuntime",
     )
     async def heartbeat(
@@ -287,7 +381,7 @@ def create_internal_router(container: InternalApiContainer) -> APIRouter:
 
     @router.post(
         "/runtime/tools/read",
-        response_model=InternalOperationResult,
+        response_model=ReadToolResponse,
         operation_id="invokeRuntimeReadTool",
     )
     async def read_tool(
@@ -297,6 +391,38 @@ def create_internal_router(container: InternalApiContainer) -> APIRouter:
         return await execute_runtime(
             operation="read_tool",
             scope="tool:invoke",
+            command=command,
+            authorization=authorization,
+        )
+
+    @router.post(
+        "/runtime/checkpoints",
+        response_model=InternalOperationResult,
+        operation_id="commitRuntimeTurnCheckpoint",
+    )
+    async def commit_checkpoint(
+        command: TurnCheckpointRequest,
+        authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+    ) -> dict[str, JsonValue]:
+        return await execute_runtime(
+            operation="commit_checkpoint",
+            scope="checkpoint:commit",
+            command=command,
+            authorization=authorization,
+        )
+
+    @router.post(
+        "/runtime/model-call",
+        response_model=ModelCallResponse,
+        operation_id="proxyRuntimeModelCall",
+    )
+    async def model_call(
+        command: ModelCallRequest,
+        authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+    ) -> dict[str, JsonValue]:
+        return await execute_runtime(
+            operation="model_call",
+            scope="model:call",
             command=command,
             authorization=authorization,
         )

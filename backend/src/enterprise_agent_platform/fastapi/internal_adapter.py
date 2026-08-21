@@ -25,8 +25,10 @@ from enterprise_agent_platform.control.service import ControlPlaneService
 from enterprise_agent_platform.domain.records import DispatchTicket
 from enterprise_agent_platform.execution.pipe_transport import (
     OP_BOOTSTRAP,
+    OP_COMMIT_CHECKPOINT,
     OP_COMMIT_FINAL,
     OP_HEARTBEAT,
+    OP_MODEL_CALL,
     OP_PROPOSE_ACTION,
     OP_PUBLISH_ARTIFACT,
     OP_READ_TOOL,
@@ -66,10 +68,22 @@ def _effect_token(effect_id: str) -> str:
 
 
 class _BootstrapAdapter(BootstrapPort):
-    """Project a host bootstrap into a Runtime identity (token + facts)."""
+    """Project a host bootstrap into a Runtime identity (token + facts).
 
-    def __init__(self, store: PlatformStore) -> None:
+    Beyond issuing the runtime token, the HTTP bootstrap **activates the
+    Lease** through the shared control service — otherwise the Pod could
+    never move Attempt CLAIMED / Run RUNNING and every heartbeat or turn
+    checkpoint CAS would fail (the pipe transport activates it parent-side,
+    SDD §6.1).
+    """
+
+    def __init__(
+        self,
+        store: PlatformStore,
+        control: ControlPlaneService | None = None,
+    ) -> None:
         self._store = store
+        self._control = control
 
     async def claim(
         self,
@@ -87,6 +101,26 @@ class _BootstrapAdapter(BootstrapPort):
         attempt = await self._store.get_attempt(tenant_id, attempt_id)
         if attempt.generation != generation:
             raise PlatformError("AUTH_FAILED", "attempt generation mismatch")
+        lease_owner = f"http-runtime:{attempt_id}"
+        lease_version = 0
+        expires_at = ""
+        if self._control is not None:
+            ctx = RequestContext(
+                tenant_id=tenant_id,
+                actor_id=lease_owner,
+                scopes=("runs:execute", "runs:write"),
+                request_id=f"http-bootstrap:{attempt_id}",
+                trace_id=f"trace:{attempt.run_id}",
+            )
+            lease = await self._control.activate_lease(
+                ctx,
+                attempt_id,
+                generation,
+                owner=lease_owner,
+                expected_lease_version=1,
+            )
+            lease_version = lease.version
+            expires_at = lease.expires_at.isoformat() if lease.expires_at else ""
         return BootstrapResponseModel(
             runtime_token=_runtime_token(attempt_id),
             tenant_id=attempt.tenant_id,
@@ -94,6 +128,9 @@ class _BootstrapAdapter(BootstrapPort):
             execution_unit_id=attempt.execution_unit_id,
             attempt_id=attempt.attempt_id,
             generation=attempt.generation,
+            lease_owner=lease_owner,
+            lease_version=lease_version,
+            expires_at=expires_at,
         )
 
 
@@ -138,7 +175,9 @@ class _RuntimeOpsAdapter(RuntimeOperationsPort):
     """Dispatch HTTP Runtime ops to the transport-agnostic orchestrator handlers.
 
     The orchestrator is reused as an op-service here (no pipes are spawned); it
-    is constructed with the same store/control the main app owns.
+    is constructed with the same store/control plus the host's
+    ``run_sessions`` (real LLM proxy for model_call) and
+    ``resource_resolver`` (real resource proxy for read_tool).
     """
 
     _OP_MAP: ClassVar[dict[str, str]] = {
@@ -148,20 +187,33 @@ class _RuntimeOpsAdapter(RuntimeOperationsPort):
         "read_tool": OP_READ_TOOL,
         "publish_artifact": OP_PUBLISH_ARTIFACT,
         "propose_action": OP_PROPOSE_ACTION,
+        "commit_checkpoint": OP_COMMIT_CHECKPOINT,
         "commit_final_checkpoint": OP_COMMIT_FINAL,
         "record_failure": OP_RECORD_FAILURE,
+        "model_call": OP_MODEL_CALL,
     }
+
+    # Ops whose full result payload the Pod runtime needs (restore carries the
+    # checkpoint cursor + agent snapshot; heartbeat the fresh lease_version;
+    # read_tool the resolved content; model_call the LLM response). The rest
+    # are normalised to InternalOperationResult{status, result_ref}.
+    _PASSTHROUGH_OPS: ClassVar[frozenset[str]] = frozenset(
+        {"restore", "heartbeat", "read_tool", "model_call"}
+    )
 
     def __init__(
         self,
         store: PlatformStore,
         orchestrator: SubprocessOrchestrator | None = None,
+        *,
+        run_sessions=None,
+        resource_resolver=None,
     ) -> None:
         self._orchestrator = orchestrator or SubprocessOrchestrator(
             store=store,
             control=ControlPlaneService(store),
-            run_sessions=None,
-            resource_resolver=None,
+            run_sessions=run_sessions,
+            resource_resolver=resource_resolver,
         )
         self._store = store
 
@@ -184,6 +236,16 @@ class _RuntimeOpsAdapter(RuntimeOperationsPort):
             generation=capability.generation,
             source_checkpoint_id="",
         )
+        if op == OP_RESTORE:
+            # The checkpoint cursor the Pod must rehydrate from is the unit's
+            # current committed checkpoint — HTTP requests cannot know it upfront.
+            unit = await self._store.get_execution_unit(
+                capability.tenant_id, capability.execution_unit_id
+            )
+            ticket = replace(
+                ticket,
+                source_checkpoint_id=unit.current_checkpoint_id or "",
+            )
         ctx = RequestContext(
             tenant_id=capability.tenant_id,
             actor_id=f"runtime:{capability.attempt_id}",
@@ -195,11 +257,25 @@ class _RuntimeOpsAdapter(RuntimeOperationsPort):
         if op in (OP_BOOTSTRAP, OP_RESTORE):
             kwargs["attempt_id"] = capability.attempt_id
             kwargs["generation"] = capability.generation
-        if op in (OP_HEARTBEAT,):
+        if op in (OP_HEARTBEAT, OP_COMMIT_CHECKPOINT, OP_COMMIT_FINAL):
+            # Bundle runtime facts under ``context`` — the shared op handlers
+            # read lease identity/version from there (pipe frames do the same).
+            kwargs["context"] = {
+                "attempt_id": capability.attempt_id,
+                "generation": capability.generation,
+                "pod_uid": "",
+                "runtime_token": f"runtime-token:{capability.attempt_id}",
+                "lease_owner": getattr(request, "lease_owner", ""),
+                "lease_version": getattr(request, "lease_version", 1),
+            }
+        if op == OP_HEARTBEAT:
             kwargs["attempt_id"] = capability.attempt_id
             kwargs["generation"] = capability.generation
-            kwargs["lease_owner"] = f"http-runtime:{capability.attempt_id}"
-            kwargs["lease_version"] = 1
+        if op == OP_COMMIT_CHECKPOINT:
+            kwargs["agent_state"] = getattr(request, "agent_state", {})
+            kwargs["agent_state_schema_version"] = getattr(
+                request, "agent_state_schema_version", "pi-agent-core/v1"
+            )
         if op == OP_READ_TOOL:
             kwargs["tool_name"] = getattr(request, "tool_name", "")
             kwargs["arguments_ref"] = getattr(request, "arguments_ref", "")
@@ -211,17 +287,29 @@ class _RuntimeOpsAdapter(RuntimeOperationsPort):
             kwargs["action_ref"] = getattr(request, "action_ref", "")
             kwargs["canonical_payload_ref"] = getattr(request, "canonical_payload_ref", "")
         if op == OP_COMMIT_FINAL:
-            kwargs["summary"] = getattr(request, "summary", "")
-            # HTTP transport does not stream the Agent snapshot inline (SDD §7.1);
-            # piped runtimes continue to carry agent_state via pipe frames.
+            kwargs["summary"] = getattr(request, "summary", "Completed.")
+            # HTTP transport does not stream the Agent snapshot inline yet
+            # (SDD §7.1); piped runtimes continue to carry agent_state via pipe
+            # frames. The durable agent_state is still written because the Pod
+            # sends turn-level snapshots through /runtime/checkpoints.
             kwargs["agent_state"] = {}
             kwargs["agent_state_schema_version"] = "http-runtime/v0"
         if op == OP_RECORD_FAILURE:
             kwargs["reason_code"] = getattr(request, "reason_code", "RUNTIME_FAILURE")
+        if op == OP_MODEL_CALL:
+            kwargs["model"] = getattr(request, "model", {})
+            kwargs["system_prompt"] = getattr(request, "system_prompt", "")
+            kwargs["messages"] = getattr(request, "messages", [])
+            kwargs["tools"] = getattr(request, "tools", [])
+            kwargs["options"] = getattr(request, "options", {})
         result = await self._orchestrator._handle(ticket, ctx, op, kwargs)
-        # Normalise to InternalOperationResult{status, result_ref}: the orchestrator
-        # op handlers return richer shapes (artifact_id/action_ref/checkpoint_id); the
-        # HTTP wire contract only carries status + one ref (see fastapi/internal.py).
+        if op in _RuntimeOpsAdapter._PASSTHROUGH_OPS:
+            # Full payload for restore / heartbeat / read_tool / model_call.
+            return result
+        # Normalise the rest to InternalOperationResult{status, result_ref}:
+        # the orchestrator handlers return richer shapes (artifact_id /
+        # action_ref / checkpoint_id); the HTTP wire contract only carries
+        # status + one ref (see fastapi/internal.py).
         result_ref = (
             result.get("artifact_id")
             or result.get("action_ref")
@@ -307,22 +395,33 @@ def build_internal_container(
     surface_publisher: SurfacePublisherPort,
     orchestrator: SubprocessOrchestrator | None = None,
     control: ControlPlaneService | None = None,
+    *,
+    run_sessions=None,
+    resource_resolver=None,
 ) -> InternalApiContainer:
     """Build the Internal Runtime API container from main-app services.
 
     ``surface_publisher`` must be provided by the caller (e.g. a
     ``SurfaceServicePublisher`` wrapping the platform's UI surface service);
     the remaining ports are derived from the shared store + orchestrator.
+    ``run_sessions`` / ``resource_resolver`` are threaded into the op-service
+    so HTTP model_call / read_tool proxy the real provider + resolver.
     """
     return InternalApiContainer(
-        bootstrap=_BootstrapAdapter(store),
+        bootstrap=_BootstrapAdapter(store, control or ControlPlaneService(store)),
         runtime_verifier=_RuntimeVerifierAdapter(store),
-        runtime_operations=_RuntimeOpsAdapter(store, orchestrator or SubprocessOrchestrator(
-            store=store,
-            control=control or ControlPlaneService(store),
-            run_sessions=None,
-            resource_resolver=None,
-        )),
+        runtime_operations=_RuntimeOpsAdapter(
+            store,
+            orchestrator
+            or SubprocessOrchestrator(
+                store=store,
+                control=control or ControlPlaneService(store),
+                run_sessions=run_sessions,
+                resource_resolver=resource_resolver,
+            ),
+            run_sessions=run_sessions,
+            resource_resolver=resource_resolver,
+        ),
         surface_publisher=surface_publisher,
         service_identities=_ServiceIdentityAdapter(),
         effects=_EffectExecutionAdapter(store),

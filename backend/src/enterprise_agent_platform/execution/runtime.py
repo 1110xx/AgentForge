@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -41,6 +43,11 @@ class BootstrapGrant:
     lease_owner: str
     lease_version: int
     expires_at: str
+    # Subject facts the Pod needs to sign HTTP runtime ops (empty for the
+    # pipe transport, which carries them on the parent ticket instead).
+    tenant_id: str = ""
+    run_id: str = ""
+    execution_unit_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +58,9 @@ class RuntimeContext:
     runtime_token: str
     lease_owner: str
     lease_version: int
+    tenant_id: str = ""
+    run_id: str = ""
+    execution_unit_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -566,3 +576,40 @@ def _export_agent_state(agent: Agent) -> dict[str, object]:
         "tools": dumped.get("tools", []),
         "messages": dumped.get("messages", []),
     }
+
+
+# ---------------------------------------------------------------------------
+# Module entry — what the K8s Job Pod actually runs
+# ---------------------------------------------------------------------------
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Entry point for ``python -m enterprise_agent_platform.execution.runtime``.
+
+    The K8s Job (``job_spec.build_attempt_job``) spawns this module inside the
+    Pod. The Pod is an HTTP Runner: it drives the Control-Plane Internal API
+    (bootstrap → restore → heartbeat → model-call → checkpoints) via
+    ``execution.http_runtime``. Subprocess mode runs a different module
+    (``execution.subprocess_runtime``) over the pipe; running this one without
+    a control-plane URL fails closed with exit 77.
+    """
+    del argv
+    if not os.environ.get("AGENT_PLATFORM_CONTROL_PLANE_URL"):
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%H:%M:%S",
+        )
+        log.error(
+            "AGENT_PLATFORM_CONTROL_PLANE_URL is required when running "
+            "execution.runtime directly (HTTP Pod mode); subprocess mode uses "
+            "execution.subprocess_runtime"
+        )
+        return 77
+    from enterprise_agent_platform.execution.http_runtime import main as http_main
+
+    return http_main()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

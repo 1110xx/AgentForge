@@ -25,8 +25,8 @@ from pi_agent_core.types import (
 )
 
 from enterprise_agent_platform.execution.pipe_transport import (
-    OP_PUBLISH_ARTIFACT,
     OP_PROPOSE_ACTION,
+    OP_PUBLISH_ARTIFACT,
     OP_READ_TOOL,
 )
 
@@ -63,9 +63,11 @@ async def _execute_remote_read_tool(
                 "arguments": tool_args,
             },
         )
-        result = response.get("result", "")
+        # Handler payloads carry the resolved text under ``content`` (pipe and
+        # HTTP transports agree on this key; ``result`` is a legacy alias).
+        result = response.get("content") or response.get("result") or ""
         return AgentToolResult(content=[TextContent(text=str(result))])
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - surfaced as tool error result
         return AgentToolResult(
             content=[TextContent(text=f"Error reading tool via Control Plane: {exc}")],
             details={"is_error": True},
@@ -102,7 +104,7 @@ async def _execute_remote_publish_artifact(
             content=[TextContent(text=f"Artifact publish {status}: {logical_name}")],
             details={"status": status, "logical_name": logical_name},
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - surfaced as tool error result
         return AgentToolResult(
             content=[TextContent(text=f"Error publishing artifact: {exc}")],
             details={"is_error": True},
@@ -138,7 +140,7 @@ async def _execute_remote_propose_action(
             content=[TextContent(text=f"Action proposal {status}: {action_ref}")],
             details={"status": status, "action_ref": action_ref},
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - surfaced as tool error result
         return AgentToolResult(
             content=[TextContent(text=f"Error proposing action: {exc}")],
             details={"is_error": True},

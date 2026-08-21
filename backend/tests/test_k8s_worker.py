@@ -123,11 +123,21 @@ def test_dispatch_runner_submits_job_with_runtime_env(monkeypatch: pytest.Monkey
         "-m",
         "enterprise_agent_platform.execution.runtime",
     ]
-    env = {item["name"]: item["value"] for item in container["env"]}
+    env: dict[str, str] = {}
+    downrefs = {}
+    for item in container["env"]:
+        if "value" in item:
+            env[item["name"]] = item["value"]
+        elif "valueFrom" in item:
+            downrefs[item["name"]] = item["valueFrom"]
     assert env["AGENT_PLATFORM_ATTEMPT_ID"] == "attempt-test"
     assert env["AGENT_PLATFORM_GENERATION"] == "1"
     assert env["AGENT_PLATFORM_CONTROL_PLANE_URL"] == (
         "http://agent-platform-api.agent-platform-control:8080"
+    )
+    assert env["AGENT_PLATFORM_BOOTSTRAP_TOKEN"] == "projected:demo-tenant"
+    assert (
+        downrefs["AGENT_PLATFORM_POD_UID"]["fieldRef"]["fieldPath"] == "metadata.uid"
     )
     assert body["spec"]["activeDeadlineSeconds"] == 300
     assert body["spec"]["backoffLimit"] == 0

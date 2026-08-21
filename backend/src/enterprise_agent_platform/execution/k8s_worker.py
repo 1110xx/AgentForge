@@ -125,6 +125,7 @@ def build_attempt_request(
     memory_limit: str = "256Mi",
     workspace_size: str = "128Mi",
     tmp_size: str = "64Mi",
+    bootstrap_token: str | None = None,
 ) -> AttemptJobRequest:
     """Map a claimed DispatchTicket to the K8s Attempt Job spec.
 
@@ -154,6 +155,7 @@ def build_attempt_request(
         active_deadline_seconds=active_deadline_seconds,
         service_account_name=service_account,
         runtime_class_name=runtime_class,
+        bootstrap_token=bootstrap_token,
     )
 
 
@@ -178,6 +180,7 @@ class K8sJobDispatchRunner:
         service_account: str = "agent-platform-sandbox",
         runtime_class: str | None = None,
         active_deadline_seconds: int = 300,
+        bootstrap_token: str | None = None,
     ) -> None:
         self._orchestrator = orchestrator
         self._image = image
@@ -186,6 +189,7 @@ class K8sJobDispatchRunner:
         self._service_account = service_account
         self._runtime_class = runtime_class
         self._active_deadline_seconds = active_deadline_seconds
+        self._bootstrap_token = bootstrap_token
 
     async def execute(self, ticket: DispatchTicket) -> None:
         request = build_attempt_request(
@@ -196,6 +200,8 @@ class K8sJobDispatchRunner:
             service_account=self._service_account,
             runtime_class=self._runtime_class,
             active_deadline_seconds=self._active_deadline_seconds,
+            bootstrap_token=self._bootstrap_token
+            or f"projected:{ticket.tenant_id}",
         )
         job_name = await self._orchestrator.submit(request)
         logger.info(

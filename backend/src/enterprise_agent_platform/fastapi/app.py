@@ -208,6 +208,8 @@ def create_agent_platform_app(container: AgentPlatformContainer) -> FastAPI:
                 store=container.store,
                 surface_publisher=SurfaceServicePublisher(surface_service),
                 control=container.control,
+                run_sessions=container.run_sessions,
+                resource_resolver=container.resource_resolver,
             )
         )
     )

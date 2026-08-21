@@ -28,6 +28,11 @@ class AttemptJobRequest:
     service_account_name: str = "agent-platform-sandbox"
     runtime_class_name: str | None = "agent-platform-gvisor"
     priority_class_name: str = "agent-platform-attempt"
+    # Demo bootstrap identity: ``projected:{tenant_id}`` is accepted by the
+    # Internal API bootstrap (fastapi/internal_adapter.py). Production swaps
+    # real K8s service-account projection validation; when unset the Pod falls
+    # back to reading the projected SA token volume.
+    bootstrap_token: str | None = None
 
 
 def _job_name(attempt_id: str) -> str:
@@ -92,6 +97,20 @@ def build_attempt_job(request: AttemptJobRequest) -> dict[str, Any]:
                                     "name": "AGENT_PLATFORM_CONTROL_PLANE_URL",
                                     "value": request.control_plane_url,
                                 },
+                                {
+                                    "name": "AGENT_PLATFORM_POD_UID",
+                                    "valueFrom": {"fieldRef": {"fieldPath": "metadata.uid"}},
+                                },
+                                *(
+                                    [
+                                        {
+                                            "name": "AGENT_PLATFORM_BOOTSTRAP_TOKEN",
+                                            "value": request.bootstrap_token,
+                                        }
+                                    ]
+                                    if request.bootstrap_token
+                                    else []
+                                ),
                             ],
                             "resources": {
                                 "requests": {
