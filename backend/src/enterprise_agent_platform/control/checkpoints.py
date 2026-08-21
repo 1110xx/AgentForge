@@ -73,6 +73,8 @@ class CheckpointCommit:
     budget_consumed: dict[str, JsonValue] = field(default_factory=dict)
     model_context_summary_ref: str | None = None
     runtime_image_digest: str | None = None
+    agent_state: dict[str, JsonValue] = field(default_factory=dict)
+    agent_state_schema_version: str = "pi-agent-core/v1"
 
     def __post_init__(self) -> None:
         if not self.source_checkpoint_id or not self.checksum:
@@ -144,6 +146,7 @@ def _prepared(command: CheckpointCommit) -> CheckpointCommit:
         active_step_context=_canonical_object(command.active_step_context),
         effect_states=_canonical_object(command.effect_states),
         budget_consumed=_canonical_object(command.budget_consumed),
+        agent_state=_canonical_object(command.agent_state),
     )
 
 
@@ -340,6 +343,8 @@ def _checkpoint(
         budget_consumed=command.budget_consumed,
         model_context_summary_ref=command.model_context_summary_ref,
         runtime_image_digest=runtime_image_digest,
+        agent_state=command.agent_state,
+        agent_state_schema_version=command.agent_state_schema_version,
     )
 
 

@@ -163,6 +163,7 @@ def _detached[T](value: T) -> T:
             ),
             effect_states=_canonical_json_object(cloned.effect_states),
             budget_consumed=_canonical_json_object(cloned.budget_consumed),
+            agent_state=_canonical_json_object(cloned.agent_state),
         )
     if isinstance(cloned, StepRecord):
         return replace(cloned, policy_snapshot=_canonical_json_object(cloned.policy_snapshot))

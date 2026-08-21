@@ -17,16 +17,11 @@ class TestDeepSeekModelProvider:
     
     @pytest.fixture
     def provider(self, mock_api_key):
-        """Create a DeepSeek provider instance for testing."""
-        return DeepSeekModelSessionProvider(api_key=mock_api_key)
-    
-    @pytest.fixture
-    def settings_with_key(self, mock_api_key):
-        """Create settings with API key."""
-        from enterprise_agent_platform.config import PlatformSettings
-        
-        with patch.dict('os.environ', {'AGENT_PLATFORM_DEEPSEEK_API_KEY': mock_api_key}):
-            return PlatformSettings()
+        """Create a DeepSeek provider instance with the LLM call stubbed."""
+        p = DeepSeekModelSessionProvider(api_key=mock_api_key)
+        # Cap all LLM calls to a canned answer so unit tests never hit the network.
+        p._call_api = AsyncMock(return_value="mocked answer")  # type: ignore[method-assign]
+        return p
     
     @pytest.mark.asyncio
     async def test_open_session(self, provider):
@@ -147,12 +142,17 @@ class TestDeepSeekModelProvider:
         await provider.close(handle)
     
     @pytest.mark.asyncio
-    async def test_config_loader_with_api_key(self, settings_with_key):
-        """Test config loader with API key."""
-        settings, provider = ConfigLoader.configure_with_deepseek()
-        
-        assert isinstance(provider, DeepSeekModelSessionProvider)
-        assert settings.deepseek_api_key == "test-deepseek-api-key"
+    async def test_config_loader_with_api_key(self, mock_api_key):
+        """Test config loader with API key (env-only; config.toml bypassed)."""
+        from enterprise_agent_platform.platform.config_reader import ConfigReader
+
+        with patch.object(ConfigReader, "_resolve_path", return_value=None), patch.dict(
+            "os.environ", {"DEEPSEEK_API_KEY": mock_api_key}
+        ):
+            settings, provider = ConfigLoader.configure_with_deepseek()
+            assert isinstance(provider, DeepSeekModelSessionProvider)
+            assert settings.resolve_api_key() == mock_api_key
+            assert provider.api_key == mock_api_key
     
     @pytest.mark.asyncio
     async def test_config_loader_without_api_key(self):
@@ -167,8 +167,8 @@ class TestDeepSeekModelProvider:
     @pytest.mark.asyncio
     async def test_api_error_handling(self, provider):
         """Test API error handling."""
-        # Mock the HTTP client to raise an error
-        with patch.object(provider, '_call_deepseek_api', side_effect=Exception("API Error")):
+        # Mock the LLM call to raise an error
+        with patch.object(provider, '_call_api', side_effect=Exception("API Error")):
             run_id = "test-api-error"
             intent = "Test intent"
             
@@ -287,7 +287,9 @@ class TestDeepseekProviderIntegration:
         """Test complete provider lifecycle."""
         api_key = "test-key"
         provider = DeepSeekModelSessionProvider(api_key=api_key)
-        
+        # Stub the LLM call so the lifecycle test never hits the network
+        provider._call_api = AsyncMock(return_value="mocked answer")  # type: ignore[method-assign]
+
         try:
             # Open session
             handle = await provider.open(
@@ -308,8 +310,9 @@ class TestDeepseekProviderIntegration:
             assert handle.session_id in provider._closed
             
         finally:
-            # Ensure cleanup
-            await provider._client.aclose()
+            # Ensure cleanup (client may be None when the LLM call is stubbed)
+            if provider._client is not None:
+                await provider._client.aclose()
 
 
 if __name__ == "__main__":

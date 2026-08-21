@@ -125,6 +125,8 @@ class CheckpointRecord:
     budget_consumed: dict[str, JsonValue] = field(default_factory=dict)
     model_context_summary_ref: str | None = None
     runtime_image_digest: str | None = None
+    agent_state: dict[str, JsonValue] = field(default_factory=dict)
+    agent_state_schema_version: str = "pi-agent-core/v1"
 
 
 @dataclass(frozen=True, slots=True)

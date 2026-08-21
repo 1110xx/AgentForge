@@ -20,13 +20,13 @@ from enterprise_agent_platform.contracts.enums import (
     ExecutionUnitState,
     RunState,
 )
-from enterprise_agent_platform.domain.fsm import transition as _fsm
 from enterprise_agent_platform.contracts.events import (
     AttemptLifecyclePayload,
     EnterpriseEventEnvelope,
     RunCreatedPayload,
     RunStatusChangedPayload,
 )
+from enterprise_agent_platform.domain.fsm import transition as _fsm
 from enterprise_agent_platform.domain.records import (
     AttemptRecord,
     AttemptReservation,
@@ -1020,6 +1020,8 @@ class ControlPlaneService:
             created_at=now,
             committed_at=now,
             completed_step_ids=(),
+            agent_state={},
+            agent_state_schema_version="pi-agent-core/v1",
         )
         event = EnterpriseEventEnvelope(
             schema_version="enterprise-event/v1",

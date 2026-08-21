@@ -20,17 +20,16 @@ Orchestrator → Runtime(Pod) shape without Docker or cluster I/O::
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
 import sys
-from dataclasses import field, replace
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from enterprise_agent_platform.control.context import RequestContext
-from enterprise_agent_platform.control.service import ControlPlaneService
 from enterprise_agent_platform.contracts.enums import (
     AttemptState,
     EntityType,
@@ -38,6 +37,9 @@ from enterprise_agent_platform.contracts.enums import (
     ExecutionUnitState,
     RunState,
 )
+from enterprise_agent_platform.control.checkpoints import CheckpointCommit, commit_checkpoint
+from enterprise_agent_platform.control.context import RequestContext
+from enterprise_agent_platform.control.service import ControlPlaneService
 from enterprise_agent_platform.domain.fsm import transition as _fsm
 from enterprise_agent_platform.domain.records import (
     ActionProposalRecord,
@@ -46,10 +48,10 @@ from enterprise_agent_platform.domain.records import (
     DispatchTicket,
     RunRecord,
 )
-from enterprise_agent_platform.execution.local_runtime import LocalRuntime
-
+from enterprise_agent_platform.execution.completer import RunCompleter
 from enterprise_agent_platform.execution.pipe_transport import (
     OP_BOOTSTRAP,
+    OP_COMMIT_CHECKPOINT,
     OP_COMMIT_FINAL,
     OP_HEARTBEAT,
     OP_MODEL_CALL,
@@ -91,11 +93,7 @@ class SubprocessOrchestrator:
         self._python = python or sys.executable
         self._max_runtime_seconds = max_runtime_seconds
         self._max_retries = 2  # max crash-auto-retry count per Attempt
-        self._completer = LocalRuntime(
-            store=store,
-            control=control,
-            run_sessions=run_sessions,
-        )
+        self._completer = RunCompleter(store)
         # One model session handle per Run (children are destroyed per attempt,
         # but the parent-side session provider is long-lived).
         self._sessions: dict[str, SessionHandle] = {}
@@ -274,12 +272,46 @@ class SubprocessOrchestrator:
             return await self._op_publish_artifact(ticket, ctx, kwargs)
         if op == OP_PROPOSE_ACTION:
             return await self._op_propose_action(ticket, ctx, kwargs)
+        if op == OP_COMMIT_CHECKPOINT:
+            agent_state = kwargs.get("agent_state") or {}
+            schema_version = str(
+                kwargs.get("agent_state_schema_version") or "pi-agent-core/v1"
+            )
+            checkpoint = await self._commit_runtime_checkpoint(
+                ticket,
+                ctx,
+                kwargs,
+                agent_state=agent_state,
+                agent_state_schema_version=schema_version,
+            )
+            return {
+                "status": "committed",
+                "checkpoint_id": checkpoint.checkpoint_id,
+            }
         if op == OP_COMMIT_FINAL:
-            run = await self._store.get_run(ticket.tenant_id, ticket.run_id)
-            await self._completer._complete_run(ctx, ticket, run)
             summary = str(kwargs.get("summary", "")) or "Completed."
+            agent_state = kwargs.get("agent_state") or {}
+            schema_version = str(
+                kwargs.get("agent_state_schema_version") or "pi-agent-core/v1"
+            )
+            # Persist the final Agent snapshot first so a follow-up / rerun
+            # Attempt can rehydrate conversation history, then terminalize.
+            checkpoint = await self._commit_runtime_checkpoint(
+                ticket,
+                ctx,
+                kwargs,
+                agent_state=agent_state,
+                agent_state_schema_version=schema_version,
+                summary=summary,
+            )
+            run = await self._store.get_run(ticket.tenant_id, ticket.run_id)
+            await self._completer.complete_run(ctx, ticket, run)
             answered = await self._answer_pending_followup(ticket, summary)
-            return {"status": "committed", "followup_answered": answered}
+            return {
+                "status": "committed",
+                "followup_answered": answered,
+                "checkpoint_id": checkpoint.checkpoint_id,
+            }
         if op == OP_RECORD_FAILURE:
             run = await self._store.get_run(ticket.tenant_id, ticket.run_id)
             reason = str(kwargs.get("reason_code", "RUNTIME_FAILURE"))
@@ -312,6 +344,104 @@ class SubprocessOrchestrator:
             "expires_at": lease.expires_at.isoformat() if lease.expires_at else "",
         }
 
+    async def _commit_runtime_checkpoint(
+        self,
+        ticket: DispatchTicket,
+        ctx: RequestContext,
+        kwargs: dict[str, Any],
+        *,
+        agent_state: dict[str, Any],
+        agent_state_schema_version: str,
+        summary: str | None = None,
+    ) -> object:
+        """Persist a pi-agent-core Agent snapshot as the next committed Checkpoint.
+
+        Mirrors the Runner contract: the Attempt is fenced into CHECKPOINTING
+        (CAS against its current status) before ``control.checkpoints.
+        commit_checkpoint`` validates the full runtime facts (generation fence,
+        Lease ownership/version, source cursor chain) and writes a new
+        Checkpoint with ``checkpoint_seq + 1``. The source cursor is always the
+        unit's current committed checkpoint, so the chain advances across turns
+        without the child having to track checkpoint ids.
+        """
+        from dataclasses import replace as _replace
+
+        context_kwargs = kwargs.get("context") or {}
+        lease_owner = str(context_kwargs.get("lease_owner", ""))
+        expected_lease_version = int(context_kwargs.get("lease_version", 0))
+
+        async with self._store.transaction() as tx:
+            now = await tx.db_now()
+            current = await tx.get_attempt(ticket.tenant_id, ticket.attempt_id)
+            if current.status is AttemptState.CLAIMED:
+                _fsm(EntityType.ATTEMPT, current.status, AttemptState.RUNNING, None)
+                running = _replace(
+                    current,
+                    status=AttemptState.RUNNING,
+                    version=current.version + 1,
+                    updated_at=now,
+                )
+                await tx.replace_attempt_cas(running, current.version)
+                _fsm(EntityType.ATTEMPT, running.status, AttemptState.CHECKPOINTING, None)
+                checkpointing = _replace(
+                    running,
+                    status=AttemptState.CHECKPOINTING,
+                    version=running.version + 1,
+                    updated_at=now,
+                )
+                await tx.replace_attempt_cas(checkpointing, running.version)
+            elif current.status is AttemptState.RUNNING:
+                _fsm(EntityType.ATTEMPT, current.status, AttemptState.CHECKPOINTING, None)
+                checkpointing = _replace(
+                    current,
+                    status=AttemptState.CHECKPOINTING,
+                    version=current.version + 1,
+                    updated_at=now,
+                )
+                await tx.replace_attempt_cas(checkpointing, current.version)
+            else:
+                raise PlatformError(
+                    "INVALID_STATE",
+                    f"attempt cannot start checkpointing from {current.status.value}",
+                )
+
+        run = await self._store.get_run(ticket.tenant_id, ticket.run_id)
+        cursor: dict[str, Any] = {
+            "intent": run.intent,
+            "resource_refs": list(run.resource_refs),
+        }
+        if summary is not None:
+            cursor["summary"] = summary
+        checksum = hashlib.sha256(
+            json.dumps(
+                agent_state,
+                allow_nan=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        unit = await self._store.get_execution_unit(
+            ticket.tenant_id, ticket.execution_unit_id
+        )
+        checkpoint = await commit_checkpoint(
+            self._store,
+            ctx,
+            attempt_id=ticket.attempt_id,
+            generation=ticket.generation,
+            lease_owner=lease_owner,
+            expected_lease_version=expected_lease_version,
+            command=CheckpointCommit(
+                source_checkpoint_id=(
+                    unit.current_checkpoint_id or ticket.source_checkpoint_id
+                ),
+                workflow_cursor=cursor,
+                checksum=checksum,
+                agent_state=agent_state,
+                agent_state_schema_version=agent_state_schema_version or "pi-agent-core/v1",
+            ),
+        )
+        return checkpoint
+
     async def _op_restore(
         self,
         ticket: DispatchTicket,
@@ -321,12 +451,22 @@ class SubprocessOrchestrator:
             ticket.tenant_id, ticket.attempt_id
         )
         run = await self._store.get_run(ticket.tenant_id, attempt.run_id)
-        cursor = {
+        # Load the actual committed Checkpoint so the child Runner can
+        # rehydrate the pi-agent-core Agent from its persisted snapshot
+        # (``agent_state``) instead of starting from a blank Agent.
+        checkpoint = await self._store.get_checkpoint(
+            ticket.tenant_id, ticket.source_checkpoint_id
+        )
+        run_cursor = {
             "run_id": run.run_id,
             "workflow_type": run.workflow_type,
             "intent": run.intent,
             "resource_refs": list(run.resource_refs),
         }
+        # Persisted cursor (per-run progress) is merged under authoritative
+        # Run facts: the current intent/resource_refs always win.
+        cursor = dict(checkpoint.workflow_cursor)
+        cursor.update(run_cursor)
         # Follow-up reactivation: if a PENDING follow-up is queued for this
         # Run, inject the question into the restore cursor so the fresh child
         # Runner answers ``intent + question`` instead of re-running the intent.
@@ -342,6 +482,8 @@ class SubprocessOrchestrator:
             "checkpoint_state": "COMMITTED",
             "snapshot_state": None,
             "workflow_cursor": cursor,
+            "agent_state": checkpoint.agent_state or {},
+            "agent_state_schema_version": checkpoint.agent_state_schema_version,
         }
 
     async def _answer_pending_followup(
@@ -678,7 +820,7 @@ class SubprocessOrchestrator:
                     tools=tools,
                 )
                 return result
-            except Exception as exc:
+            except Exception:
                 # Fall back to followup text-only
                 pass
 
@@ -733,7 +875,7 @@ class SubprocessOrchestrator:
                 "Max retries reached for run=%s attempt=%s gen=%d — terminal fail",
                 run.run_id, ticket.attempt_id, ticket.generation,
             )
-            await self._completer._fail_run(ctx, ticket, run, error)
+            await self._completer.fail_run(ctx, ticket, run, error)
 
     async def _transition_to_recovering(
         self,
@@ -825,7 +967,7 @@ class SubprocessOrchestrator:
                 "Recovery transition failed for run=%s — falling back to terminal fail",
                 run.run_id,
             )
-            await self._completer._fail_run(ctx, ticket, run, error)
+            await self._completer.fail_run(ctx, ticket, run, error)
 
     async def _fail(self, ticket: DispatchTicket, reason: str) -> None:
         ctx = self._runtime_context(ticket)

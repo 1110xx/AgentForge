@@ -25,7 +25,6 @@ import os
 import sys
 from typing import Any
 
-
 # ── Operation names (mirrors fastapi/internal.py runtime operations) ──
 OP_BOOTSTRAP = "bootstrap"
 OP_RESTORE = "restore"
@@ -34,6 +33,7 @@ OP_READ_TOOL = "read_tool"
 OP_PUBLISH_ARTIFACT = "publish_artifact"
 OP_PROPOSE_ACTION = "propose_action"
 OP_MODEL_CALL = "model_call"
+OP_COMMIT_CHECKPOINT = "commit_checkpoint"
 OP_COMMIT_FINAL = "commit_final_checkpoint"
 OP_RECORD_FAILURE = "record_failure"
 

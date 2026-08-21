@@ -256,6 +256,13 @@ checkpoint_table = Table(
     Column("budget_consumed", JSON_DOCUMENT, nullable=False, server_default=text("'{}'")),
     Column("model_context_summary_ref", String(512)),
     Column("runtime_image_digest", String(255)),
+    Column("agent_state", JSON_DOCUMENT, nullable=False, server_default=text("'{}'")),
+    Column(
+        "agent_state_schema_version",
+        String(64),
+        nullable=False,
+        server_default=text("'pi-agent-core/v1'"),
+    ),
     Column("checkpoint_schema_version", String(64), nullable=False),
     Column("runtime_profile_version", String(128), nullable=False),
     Column("policy_version", String(64), nullable=False),

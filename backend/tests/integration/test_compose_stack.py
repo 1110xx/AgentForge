@@ -254,7 +254,9 @@ def test_reference_vertical_on_postgres() -> None:
 
 
 def test_nats_reachable() -> None:
-    url = _env("AGENT_PLATFORM_L2_NATS_URL") or "nats://nats:4222"
+    url = _env("AGENT_PLATFORM_L2_NATS_URL")
+    if not url:
+        pytest.skip("AGENT_PLATFORM_L2_NATS_URL is not set (L2 stack not running)")
 
     async def ping() -> None:
         import nats

@@ -221,6 +221,8 @@ def _checkpoint(row: Any) -> CheckpointRecord:
         budget_consumed=_canonical_json(row["budget_consumed"]),
         model_context_summary_ref=row["model_context_summary_ref"],
         runtime_image_digest=row["runtime_image_digest"],
+        agent_state=_canonical_json(row["agent_state"]),
+        agent_state_schema_version=row["agent_state_schema_version"],
     )
 
 
@@ -1111,6 +1113,7 @@ class SqlAlchemyPlatformTransaction:
         values["resolved_tool_call_ids"] = list(record.resolved_tool_call_ids)
         values["effect_states"] = _canonical_json(record.effect_states)
         values["budget_consumed"] = _canonical_json(record.budget_consumed)
+        values["agent_state"] = _canonical_json(record.agent_state)
         await self._insert(checkpoint_table, values, "checkpoint")
 
     async def insert_step(self, record: StepRecord) -> None:
@@ -1397,6 +1400,7 @@ class SqlAlchemyPlatformTransaction:
         values["resolved_tool_call_ids"] = list(record.resolved_tool_call_ids)
         values["effect_states"] = _canonical_json(record.effect_states)
         values["budget_consumed"] = _canonical_json(record.budget_consumed)
+        values["agent_state"] = _canonical_json(record.agent_state)
         await self._replace_cas(
             checkpoint_table,
             checkpoint_table.c.checkpoint_id,

@@ -24,14 +24,13 @@ import json
 import logging
 import os
 import sys
-from typing import Any, AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Sequence
+from typing import Any
 
 from pi_agent_core.types import (
     AgentContext,
     AssistantMessage,
     AssistantMessageEvent,
-    ImageContent,
-    Message,
     Model,
     SimpleStreamOptions,
     StreamDoneEvent,
@@ -42,6 +41,9 @@ from pi_agent_core.types import (
     StreamTextDeltaEvent,
     StreamTextEndEvent,
     StreamTextStartEvent,
+    StreamThinkingDeltaEvent,
+    StreamThinkingEndEvent,
+    StreamThinkingStartEvent,
     StreamToolCallDeltaEvent,
     StreamToolCallEndEvent,
     StreamToolCallStartEvent,
@@ -54,12 +56,10 @@ from pi_agent_core.types import (
 
 from enterprise_agent_platform.execution.pipe_transport import (
     OP_BOOTSTRAP,
+    OP_COMMIT_CHECKPOINT,
     OP_COMMIT_FINAL,
     OP_HEARTBEAT,
     OP_MODEL_CALL,
-    OP_PROPOSE_ACTION,
-    OP_PUBLISH_ARTIFACT,
-    OP_READ_TOOL,
     OP_RECORD_FAILURE,
     OP_RESTORE,
     PipeClient,
@@ -70,7 +70,6 @@ from enterprise_agent_platform.execution.runtime import (
     BootstrapGrant,
     RuntimeCheckpoint,
     RuntimeContext,
-    RuntimeIdentityProvider,
 )
 from enterprise_agent_platform.tools.native import create_native_tools
 from enterprise_agent_platform.tools.remote import create_remote_tools
@@ -143,19 +142,43 @@ class PipeRuntimeControlClient:
             checkpoint_state=str(result["checkpoint_state"]),
             snapshot_state=result.get("snapshot_state"),
             workflow_cursor=dict(result.get("workflow_cursor") or {}),
+            agent_state=dict(result.get("agent_state") or {}),
+            agent_state_schema_version=result.get("agent_state_schema_version"),
         )
 
     async def heartbeat(self, context: RuntimeContext) -> RuntimeContext:
         result = await self._client.request(OP_HEARTBEAT, context=_context_dict(context))
         return _restore_context(result)
 
+    async def commit_checkpoint(
+        self,
+        context: RuntimeContext,
+        *,
+        agent_state: dict[str, object],
+        agent_state_schema_version: str,
+    ) -> None:
+        """Commit a mid-run checkpoint carrying the Agent snapshot."""
+        await self._client.request(
+            OP_COMMIT_CHECKPOINT,
+            context=_context_dict(context),
+            agent_state=agent_state,
+            agent_state_schema_version=agent_state_schema_version,
+        )
+
     async def commit_final_checkpoint(
-        self, context: RuntimeContext, *, summary: str
+        self,
+        context: RuntimeContext,
+        *,
+        summary: str,
+        agent_state: dict[str, object] | None = None,
+        agent_state_schema_version: str | None = None,
     ) -> None:
         await self._client.request(
             OP_COMMIT_FINAL,
             context=_context_dict(context),
             summary=summary,
+            agent_state=agent_state or {},
+            agent_state_schema_version=agent_state_schema_version or "pi-agent-core/v1",
         )
 
     async def record_failure(
