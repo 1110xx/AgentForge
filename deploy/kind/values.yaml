@@ -33,7 +33,7 @@ secrets:
 
 integration:
   containerFactory: enterprise_integration.agent_platform:create_container
-  workerFactory: enterprise_integration.agent_platform:run_worker
+  workerFactory: enterprise_agent_platform.execution.k8s_worker:run_worker
 
 sandbox:
   namespace: agent-platform-sandbox

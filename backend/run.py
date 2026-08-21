@@ -34,7 +34,7 @@ from uuid import uuid4
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 import uvicorn
-from enterprise_agent_platform.contracts.commands import FollowupCommand
+
 from enterprise_agent_platform.control.context import RequestContext
 from enterprise_agent_platform.control.followup import FollowupService
 from enterprise_agent_platform.control.service import ControlPlaneService
@@ -43,10 +43,9 @@ from enterprise_agent_platform.execution.subprocess_orchestrator import Subproce
 from enterprise_agent_platform.fastapi.app import create_agent_platform_app
 from enterprise_agent_platform.fastapi.dependencies import AgentPlatformContainer
 from enterprise_agent_platform.integration.host import (
+    ResolvedPolicyContext,
     ResolvedResource,
     VerifiedHostContext,
-    ResolvedPolicyContext,
-    HostPortError,
 )
 from enterprise_agent_platform.persistence import InMemoryPlatformStore
 from enterprise_agent_platform.platform.config_reader import ConfigReader
@@ -180,12 +179,39 @@ def main() -> None:
     #     Polls QUEUED work, creates Attempt+Lease, then dispatches each
     #     Attempt to its own child runtime process over a JSON-line pipe
     #     (Phase-1: SubprocessOrchestrator; production swaps in KubernetesOrchestrator).
+    #     Phase-3 wiring switch: AGENT_PLATFORM_K8S_WORKER=1 runs the scheduler
+    #     against the production Kubernetes orchestrator (kind kubeconfig direct
+    #     connect) instead of the local subprocess orchestrator.
     orchestrator = SubprocessOrchestrator(
         store=store,
         control=control,
         run_sessions=run_sessions,
         resource_resolver=DemoResourceResolver(),
     )
+    if os.environ.get("AGENT_PLATFORM_K8S_WORKER") == "1":
+        from enterprise_agent_platform.execution.k8s_worker import (
+            K8sJobDispatchRunner,
+            make_k8s_batch_client,
+        )
+        from enterprise_agent_platform.execution.orchestrator import (
+            KubernetesOrchestrator,
+        )
+
+        orchestrator = K8sJobDispatchRunner(
+            KubernetesOrchestrator(make_k8s_batch_client(), timeout_seconds=30.0),
+            image=os.environ.get("AGENT_PLATFORM_RUNTIME_IMAGE", ""),
+            control_plane_url=os.environ.get(
+                "AGENT_PLATFORM_CONTROL_PLANE_URL", "http://127.0.0.1:8080"
+            ),
+            namespace=os.environ.get(
+                "AGENT_PLATFORM_SANDBOX_NAMESPACE", "agent-platform-sandbox"
+            ),
+            service_account=os.environ.get(
+                "AGENT_PLATFORM_SANDBOX_SERVICE_ACCOUNT", "agent-platform-sandbox"
+            ),
+            runtime_class=os.environ.get("AGENT_PLATFORM_SANDBOX_RUNTIME_CLASS") or None,
+        )
+        logger.info("Kubernetes orchestrator enabled (AGENT_PLATFORM_K8S_WORKER=1)")
     scheduler = SchedulerService(
         store=store,
         control=control,
