@@ -19,6 +19,7 @@ from enterprise_agent_platform import (
     create_in_memory_container,
 )
 from enterprise_agent_platform import create_app as create_platform_app
+from enterprise_agent_platform.reference.session import InMemoryRunSessionProvider
 
 REFERENCE_LOCAL_BEARER = "Bearer reference-local-demo"
 REFERENCE_LOCAL_TENANT = "reference-local"
@@ -97,6 +98,7 @@ def create_container() -> AgentPlatformContainer:
         resource_resolver=_ReferenceResources(),
         host_context_verifier=_ReferenceHostContext(),
         policy_context_provider=_ReferencePolicy(),
+        run_sessions=InMemoryRunSessionProvider(),
     )
 
 

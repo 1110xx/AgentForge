@@ -136,6 +136,12 @@ class UiActionCommand(StrictModel):
     host_context_ref: str | None = None
 
 
+class FollowupCommand(StrictModel):
+    run_id: str
+    question: Annotated[str, Field(min_length=1, max_length=4000)]
+    client_followup_id: str
+
+
 class EffectGrantRequest(StrictModel):
     """Server-side request to authorise and dispatch one prepared Effect.
 

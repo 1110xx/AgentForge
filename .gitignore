@@ -12,5 +12,18 @@ dist/
 # Local tool binaries (kind/helm) pulled for the L3 Kind gate
 .tools/
 
+# User config — contains API keys, must never be committed
+config.toml
+backend/config.toml
+.env
+*.env.local
+*.env.production
+
 # OCR-reconstruction debris: corrupted backups kept for reference
 contracts/_ocr-corrupted-backup/
+
+# Byte-compiled / temp
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/

@@ -104,6 +104,33 @@ class SurfaceRevision(StrictModel):
     checksum: str
 
 
+class FollowupAnswer(StrictModel):
+    schema_version: Literal["followup-answer/v1"]
+    run_id: str
+    session_id: str
+    question: str
+    answer: str
+
+
+class FollowupRecord(StrictModel):
+    """One question/answer pair stored for a Run."""
+    schema_version: Literal["followup-record/v1"] = "followup-record/v1"
+    run_id: str
+    followup_seq: Annotated[int, Field(ge=0)]
+    question: str
+    answer: str
+    answered_at: datetime
+    client_followup_id: str
+
+
+class FollowupHistoryPage(StrictModel):
+    """Paginated followup history for a Run."""
+    schema_version: Literal["followup-history-page/v1"] = "followup-history-page/v1"
+    run_id: str
+    total_count: Annotated[int, Field(ge=0)]
+    records: tuple[FollowupRecord, ...]
+
+
 class ExecutionUnitSummary(StrictModel):
     execution_unit_id: str
     role: str

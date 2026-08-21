@@ -1,0 +1,5 @@
+services:
+  postgres:
+    ports: ["127.0.0.1:5432:5432"]
+  nats:
+    ports: ["127.0.0.1:4222:4222"]

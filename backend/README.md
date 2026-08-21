@@ -2,6 +2,59 @@
 #定位
 这是可独立安装的Python backend package,包含企业Agent 的contracts、领域状态机、Control Plane services、持久化,Protocol/adapter、Runtime/Tool/Ar
 包不导入任何入业务系统的源码。业务系统通过公开HostPorts、Connector、CredentialBroker和factory注入身份、资源、策略及外部系统能力。
+
+## 🤖 DeepSeek 模型提供商集成
+
+平台现已支持 DeepSeek v4 Flash 作为默认模型提供商。配置简单，开箱即用。
+
+### 快速开始
+
+1. **设置 API Key**：
+   ```bash
+   export DEEPSEEK_API_KEY='your-deepseek-api-key-here'
+   ```
+
+2. **运行测试脚本**：
+   ```bash
+   uv run -project backend python scripts/deepseek_setup.py
+   ```
+
+3. **在生产中使用**：
+   ```python
+   from enterprise_agent_platform.platform.config_loader import ConfigLoader
+   from enterprise_agent_platform.platform.model_provider_config import create_model_provider
+   
+   # 自动加载 DeepSeek 配置
+   settings, model_provider = ConfigLoader.configure_with_deepseek()
+   ```
+
+### 配置选项
+
+| 环境变量 | 描述 | 默认值 |
+|---------|------|--------|
+| `DEEPSEEK_API_KEY` | DeepSeek API 密钥 | 必填 |
+| `DEEPSEEK_BASE_URL` | DeepSeek API 基础 URL | `https://api.deepseek.com/v1` |
+| `DEFAULT_MODEL` | 默认模型 | `deepseek-chat` |
+
+### 回退机制
+
+- 如果未设置 `DEEPSEEK_API_KEY`，平台自动回退到 Reference 模型提供商（demo 模式）
+- 支持多种 API key 名称兼容（`OPENAI_API_KEY`、`ANTHROPIC_API_KEY`）
+- 提供完整的错误提示和配置指导
+
+### 特性
+
+✅ **Session 管理**：每个 Run 对应一个模型 session，支持追问
+✅ **只读护栏**：追问时自动确保只读操作
+✅ **幂等处理**：支持重复请求去重
+✅ **错误处理**：完善的异常处理和错误信息
+✅ **异步支持**：完全异步实现，性能优异
+
+### 文档
+
+- [DeepSeek API 文档](https://platform.deepseek.com/api-docs)
+- [Session 架构设计](../docs/sdd-followup-mode.md)
+- [模型提供商接口](../execution/session.py)
 环境与安装
     Python >=3.12
     uv
