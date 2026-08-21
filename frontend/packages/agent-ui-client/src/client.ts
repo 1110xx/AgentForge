@@ -13,6 +13,8 @@ import type {
   CreateRunCommand as CreateRunCommandType,
   RunViewSnapshot as RunViewSnapshotType,
   SurfaceRevision as SurfaceRevisionType,
+  FollowupAnswer as FollowupAnswerType,
+  FollowupHistoryPage as FollowupHistoryPageType,
 } from "@platform/agent-ui-protocol";
 import {
   ArtifactDownloadAuthorization,
@@ -21,6 +23,9 @@ import {
   RunViewSnapshot,
   SurfaceRevision,
   UiActionCommand,
+  FollowupAnswer,
+  FollowupHistoryPage,
+  FollowupCommand,
 } from "@platform/agent-ui-protocol";
 import {
   AgentPlatformApiError,
@@ -382,6 +387,67 @@ export class AgentPlatformClient {
     return revision;
   }
 
+  /**
+   * POST /v1/runs/{run_id}/followups — send a followup question.
+   *
+   * The backend requires ``client_followup_id`` == ``Idempotency-Key`` header.
+   * The request body includes ``run_id`` (checked by backend against the URL).
+   */
+  async submitFollowup(
+    runId: string,
+    question: string,
+    options: IdempotentRequestOptions = {},
+  ): Promise<FollowupAnswerType> {
+    const clientFollowupId =
+      options.idempotencyKey ?? createIdempotencyKey("followup");
+    const command = FollowupCommand.parse({
+      run_id: runId,
+      question,
+      client_followup_id: clientFollowupId,
+    });
+    return this.request<FollowupAnswerType>(
+      "POST",
+      `/v1/runs/${encode(runId)}/followups`,
+      {
+        signal: options.signal,
+        headers: { "Idempotency-Key": clientFollowupId },
+        body: command,
+        parse: (value) => {
+          const result = FollowupAnswer.safeParse(value);
+          if (!result.success) {
+            throw new AgentPlatformProtocolError(
+              "followup response was not followup-answer/v1",
+            );
+          }
+          return result.data;
+        },
+      },
+    );
+  }
+
+  /** GET /v1/runs/{run_id}/followups — list followup history for a run. */
+  async listFollowups(
+    runId: string,
+    options: RequestOptions = {},
+  ): Promise<FollowupHistoryPageType> {
+    return this.request<FollowupHistoryPageType>(
+      "GET",
+      `/v1/runs/${encode(runId)}/followups`,
+      {
+        signal: options.signal,
+        parse: (value) => {
+          const result = FollowupHistoryPage.safeParse(value);
+          if (!result.success) {
+            throw new AgentPlatformProtocolError(
+              "followup history was not followup-history-page/v1",
+            );
+          }
+          return result.data;
+        },
+      },
+    );
+  }
+
   /** GET .../download-authorization — short-lived artifact download token. */
   async getArtifactDownloadAuthorization(
     runId: string,
@@ -615,6 +681,17 @@ export class RunProjectionSynchronizer {
           }
           this.store.ingestEvent(event);
           this.setStatus("streaming");
+          // Fetch surface documents as soon as commit events arrive,
+          // rather than waiting for the stream to close (which may be
+          // minutes away in both mock and real backend modes).
+          if (this.refreshSurfaces) {
+            await refreshSurfaceDocuments(
+              this.client,
+              this.runId,
+              this.store,
+              { signal: this.controller.signal },
+            );
+          }
         }
         // Stream ended cleanly (server lifetime deadline) — reconnect.
         this.setStatus("connecting");

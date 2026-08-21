@@ -10,12 +10,15 @@
  * three host capabilities (token, navigation, authorized downloads); the
  * browser Action command never carries approval_id or credentials
  * (docs/embedding-guide.md §5.3, §6.2).
+ *
+ * Phase 3: AgentPanel now embeds FollowupPanel at the bottom.
  */
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -39,6 +42,7 @@ import {
   type SurfaceRenderContext,
 } from "@platform/agent-ui-catalog";
 import type { HostBridgeCapabilities } from "@platform/agent-ui-protocol/host";
+import { FollowupPanel } from "./followup-panel.js";
 
 export type { RunProjectionSnapshot } from "@platform/agent-ui-client";
 export type {
@@ -47,6 +51,11 @@ export type {
 } from "@platform/agent-ui-catalog";
 export { EAP_THEME } from "@platform/agent-ui-catalog";
 export type { HostBridgeCapabilities } from "@platform/agent-ui-protocol/host";
+export { FollowupPanel } from "./followup-panel.js";
+export {
+  useFollowupHistory,
+  type FollowupEntry,
+} from "./use-followup-history.js";
 
 /* ------------------------------------------------------------------ */
 /* Provider                                                            */
@@ -240,6 +249,32 @@ export function AgentPanel({ runId }: AgentPanelProps): ReactElement | null {
     [client, hostBridge, runId],
   );
 
+  // runEnded checks both the snapshot status (from REST) and the event-derived
+  // runStatus (from SSE), because the store only ingests full snapshots on
+  // resync, while run.status.changed SSE events update runStatus directly.
+  const runEnded = useMemo(
+    () =>
+      projection.run?.status === "SUCCEEDED" ||
+      projection.run?.status === "FAILED" ||
+      projection.run?.status === "CANCELLED" ||
+      projection.runStatus === "SUCCEEDED" ||
+      projection.runStatus === "FAILED" ||
+      projection.runStatus === "CANCELLED",
+    [projection.run?.status, projection.runStatus],
+  );
+
+  const effectSummary = useMemo(() => {
+    // Extract summary from the first surface document title
+    const surfaces = projection.surfaces;
+    if (surfaces.size === 0) return undefined;
+    const firstSurface = surfaces.values().next().value;
+    if (!firstSurface) return undefined;
+    const doc = firstSurface.document as unknown as {
+      props?: { title?: string };
+    };
+    return doc?.props?.title;
+  }, [projection.surfaces]);
+
   const run = projection.run;
   if (run === null) {
     return (
@@ -270,7 +305,7 @@ export function AgentPanel({ runId }: AgentPanelProps): ReactElement | null {
         ))}
         {run.view.attempts.map((attempt) => (
           <div key={attempt.attempt_id} style={{ display: "flex", gap: "8px" }}>
-            <span>{attempt.attempt_id}</span>
+            <span>{attempt.attempt_id.slice(0, 12)}</span>
             <span style={{ color: EAP_THEME.secondaryText }}>{attempt.status}</span>
           </div>
         ))}
@@ -301,6 +336,13 @@ export function AgentPanel({ runId }: AgentPanelProps): ReactElement | null {
           })
         )}
       </div>
+
+      {/* Phase 3: FollowupPanel */}
+      <FollowupPanel
+        runId={runId}
+        runEnded={runEnded}
+        effectSummary={effectSummary}
+      />
     </section>
   );
 }

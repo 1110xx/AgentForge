@@ -75,6 +75,11 @@ TRANSITIONS: TransitionTable = {
             RunState.CANCELLED,
         },
         RunState.CANCEL_REQUESTED: {RunState.CANCELLED, RunState.NEEDS_ATTENTION},
+        # Follow-up reactivation: a terminal Run may be reopened for a new
+        # Attempt that answers a follow-up question (see §6.4 in SDD).
+        # The Run returns to SUCCEEDED once the follow-up Attempt commits.
+        RunState.SUCCEEDED: {RunState.RECOVERING},
+        RunState.FAILED: {RunState.RECOVERING},
     },
     EntityType.STEP: {
         StepState.PENDING: {StepState.ACTIVE, StepState.SKIPPED, StepState.CANCELLED},
@@ -129,6 +134,9 @@ TRANSITIONS: TransitionTable = {
             ExecutionUnitState.FAILED,
             ExecutionUnitState.CANCELLED,
         },
+        # Follow-up reactivation: terminal units reopen for a follow-up Attempt.
+        ExecutionUnitState.SUCCEEDED: {ExecutionUnitState.RECOVERING},
+        ExecutionUnitState.FAILED: {ExecutionUnitState.RECOVERING},
     },
     EntityType.ATTEMPT: {
         AttemptState.CREATED: {AttemptState.PROVISIONING, AttemptState.CANCELLED},

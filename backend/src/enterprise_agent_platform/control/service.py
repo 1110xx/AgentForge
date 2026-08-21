@@ -14,11 +14,13 @@ from enterprise_agent_platform.contracts.commands import CreateRunCommand
 from enterprise_agent_platform.contracts.enums import (
     AttemptState,
     CheckpointState,
+    EntityType,
     EventType,
     ExecutionLeaseState,
     ExecutionUnitState,
     RunState,
 )
+from enterprise_agent_platform.domain.fsm import transition as _fsm
 from enterprise_agent_platform.contracts.events import (
     AttemptLifecyclePayload,
     EnterpriseEventEnvelope,
@@ -32,6 +34,7 @@ from enterprise_agent_platform.domain.records import (
     CheckpointRecord,
     ExecutionLeaseRecord,
     ExecutionUnitRecord,
+    FollowupRequestRecord,
     IdempotencyRecord,
     OutboxMessageRecord,
     RunAuthorizationContext,
@@ -859,6 +862,76 @@ class ControlPlaneService:
                 now,
             )
             return child
+
+    async def queue_followup(
+        self,
+        ctx: RequestContext,
+        run_id: str,
+        *,
+        question: str,
+        client_followup_id: str,
+    ) -> FollowupRequestRecord:
+        """Reactivate a terminal Run for a follow-up Attempt and queue the question.
+
+        Transitions the Run and its primary ExecutionUnit from a terminal state
+        (SUCCEEDED/FAILED) back into RECOVERING, so the next Scheduler polling
+        cycle claims the unit again and reserves a new Attempt (generation+1).
+        The durable FollowupRequestRecord carries the question; the parent
+        orchestrator injects it into the new child Runner via ``_op_restore``
+        and writes the answer back when the Attempt commits.
+        """
+        if not question.strip():
+            raise PlatformError("INTEGRITY_VIOLATION", "follow-up question must not be empty")
+        async with self._store.transaction() as tx:
+            now = await tx.db_now()
+            run = await tx.lock_run(ctx.tenant_id, run_id)
+            if run.status in (RunState.CANCELLED, RunState.CANCEL_REQUESTED):
+                raise PlatformError("INVALID_STATE", "cancelled runs cannot accept follow-ups")
+            unit = await tx.get_primary_unit(ctx.tenant_id, run_id)
+            unit = await tx.lock_execution_unit(ctx.tenant_id, unit.execution_unit_id)
+
+            # Reactivate terminal aggregates so the scheduler can claim them again.
+            if run.status in (RunState.SUCCEEDED, RunState.FAILED):
+                _fsm(EntityType.RUN, run.status, RunState.RECOVERING, None)
+                reactivated_run = replace(
+                    run,
+                    status=RunState.RECOVERING,
+                    status_reason=None,
+                    version=run.version + 1,
+                    updated_at=now,
+                )
+                await tx.replace_run_cas(reactivated_run, run.version)
+                run = reactivated_run
+            if unit.status in (ExecutionUnitState.SUCCEEDED, ExecutionUnitState.FAILED):
+                _fsm(
+                    EntityType.EXECUTION_UNIT,
+                    unit.status,
+                    ExecutionUnitState.RECOVERING,
+                    None,
+                )
+                reactivated_unit = replace(
+                    unit,
+                    status=ExecutionUnitState.RECOVERING,
+                    version=unit.version + 1,
+                    updated_at=now,
+                )
+                await tx.replace_execution_unit_cas(reactivated_unit, unit.version)
+                unit = reactivated_unit
+
+            followup = FollowupRequestRecord(
+                tenant_id=ctx.tenant_id,
+                followup_id=self._store.new_id("followup"),
+                run_id=run.run_id,
+                question=question,
+                client_followup_id=client_followup_id,
+                status="PENDING",
+                answer=None,
+                version=1,
+                created_at=now,
+                answered_at=None,
+            )
+            await tx.insert_followup_request(followup)
+            return followup
 
     async def _insert_initial_run(
         self,

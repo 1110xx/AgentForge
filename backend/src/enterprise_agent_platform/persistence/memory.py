@@ -29,6 +29,7 @@ from enterprise_agent_platform.domain.records import (
     EffectLedgerRecord,
     ExecutionLeaseRecord,
     ExecutionUnitRecord,
+    FollowupRequestRecord,
     IdempotencyRecord,
     InboxMessageRecord,
     OutboxMessageRecord,
@@ -66,6 +67,7 @@ ApprovalKey = tuple[str, str]
 InboxKey = tuple[str, str, str]
 IdempotencyKey = tuple[str, str, str]
 EffectKey = tuple[str, str]
+FollowupKey = tuple[str, str]
 
 ACTIVE_ATTEMPT_STATES = frozenset({
     AttemptState.CREATED,
@@ -109,6 +111,7 @@ class _State:
     approvals: dict[ApprovalKey, ApprovalRequestRecord] = field(default_factory=dict)
     effects: dict[EffectKey, EffectLedgerRecord] = field(default_factory=dict)
     effect_by_key: dict[tuple[str, str], EffectKey] = field(default_factory=dict)
+    followups: dict[FollowupKey, FollowupRequestRecord] = field(default_factory=dict)
     inbox: dict[InboxKey, InboxMessageRecord] = field(default_factory=dict)
     idempotency: dict[IdempotencyKey, IdempotencyRecord] = field(default_factory=dict)
     events: dict[RunKey, list[EnterpriseEventEnvelope]] = field(default_factory=dict)
@@ -759,6 +762,43 @@ class _MemoryTransaction:
         ):
             raise PlatformError("INTEGRITY_VIOLATION", "invalid approval request relation")
         self._state.approvals[key] = _detached(record)
+
+    async def insert_followup_request(self, record: FollowupRequestRecord) -> None:
+        self._fault("insert_followup_request")
+        key = (record.tenant_id, record.followup_id)
+        if (
+            key in self._state.followups
+            or (record.tenant_id, record.run_id) not in self._state.runs
+        ):
+            raise PlatformError("INTEGRITY_VIOLATION", "invalid followup relation")
+        self._state.followups[key] = _detached(record)
+
+    async def get_followup_request(
+        self, tenant_id: str, followup_id: str
+    ) -> FollowupRequestRecord:
+        try:
+            return _detached(self._state.followups[(tenant_id, followup_id)])
+        except KeyError as error:
+            raise _not_found("followup request") from error
+
+    async def list_followup_requests(
+        self, tenant_id: str, run_id: str
+    ) -> tuple[FollowupRequestRecord, ...]:
+        return tuple(
+            _detached(record)
+            for (record_tenant, _), record in self._state.followups.items()
+            if record_tenant == tenant_id and record.run_id == run_id
+        )
+
+    async def replace_followup_request_cas(
+        self, record: FollowupRequestRecord, expected_version: int
+    ) -> None:
+        self._fault("replace_followup_request_cas")
+        key = (record.tenant_id, record.followup_id)
+        current = self._state.followups.get(key)
+        if current is None or current.version != expected_version:
+            raise PlatformError("VERSION_CONFLICT", "followup request version compare-and-swap failed")
+        self._state.followups[key] = _detached(record)
 
     async def insert_effect(self, record: EffectLedgerRecord) -> None:
         self._fault("insert_effect")
@@ -1411,6 +1451,25 @@ class InMemoryPlatformStore:
                 return _detached(self._state.effects[(tenant_id, effect_id)])
             except KeyError as error:
                 raise _not_found("effect") from error
+
+    async def get_followup_request(
+        self, tenant_id: str, followup_id: str
+    ) -> FollowupRequestRecord:
+        async with self._lock:
+            try:
+                return _detached(self._state.followups[(tenant_id, followup_id)])
+            except KeyError as error:
+                raise _not_found("followup request") from error
+
+    async def list_followup_requests(
+        self, tenant_id: str, run_id: str
+    ) -> tuple[FollowupRequestRecord, ...]:
+        async with self._lock:
+            return tuple(
+                _detached(record)
+                for (record_tenant, _), record in self._state.followups.items()
+                if record_tenant == tenant_id and record.run_id == run_id
+            )
 
     async def get_effect_by_key(
         self, tenant_id: str, effect_key: str

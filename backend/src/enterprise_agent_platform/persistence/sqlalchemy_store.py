@@ -41,6 +41,7 @@ from enterprise_agent_platform.domain.records import (
     EffectLedgerRecord,
     ExecutionLeaseRecord,
     ExecutionUnitRecord,
+    FollowupRequestRecord,
     IdempotencyRecord,
     InboxMessageRecord,
     OutboxMessageRecord,
@@ -71,6 +72,7 @@ from .tables import (
     effect_ledger_table,
     execution_lease_table,
     execution_unit_table,
+    followup_request_table,
     idempotency_record_table,
     inbox_message_table,
     outbox_message_table,
@@ -442,6 +444,21 @@ def _effect(row: Any) -> EffectLedgerRecord:
         created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
         updated_at=_aware(row["updated_at"]),  # type: ignore[arg-type]
         completed_at=_aware(row["completed_at"]),
+    )
+
+
+def _followup_request(row: Any) -> FollowupRequestRecord:
+    return FollowupRequestRecord(
+        tenant_id=row["tenant_id"],
+        followup_id=row["followup_id"],
+        run_id=row["run_id"],
+        question=row["question"],
+        client_followup_id=row["client_followup_id"],
+        status=row["status"],
+        answer=row["answer"],
+        version=row["version"],
+        created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
+        answered_at=_aware(row["answered_at"]),
     )
 
 
@@ -1525,6 +1542,60 @@ class SqlAlchemyPlatformTransaction:
             "approval request",
         )
 
+    async def insert_followup_request(self, record: FollowupRequestRecord) -> None:
+        if record.status not in ("PENDING", "ANSWERED") or record.version != 1:
+            raise PlatformError(
+                "INTEGRITY_VIOLATION",
+                "followup request must be PENDING/ANSWERED at version 1 on insert",
+            )
+        await self._insert(followup_request_table, _record_values(record), "followup request")
+
+    async def get_followup_request(
+        self, tenant_id: str, followup_id: str
+    ) -> FollowupRequestRecord:
+        statement = (
+            select(followup_request_table)
+            .where(followup_request_table.c.tenant_id == tenant_id)
+            .where(followup_request_table.c.followup_id == followup_id)
+        )
+        result = await self._session.execute(statement)
+        row = result.first()
+        if row is None:
+            raise _not_found("followup request")
+        return _followup_request(row)
+
+    async def list_followup_requests(
+        self, tenant_id: str, run_id: str
+    ) -> tuple[FollowupRequestRecord, ...]:
+        statement = (
+            select(followup_request_table)
+            .where(followup_request_table.c.tenant_id == tenant_id)
+            .where(followup_request_table.c.run_id == run_id)
+            .order_by(followup_request_table.c.created_at)
+        )
+        rows = (await self._session.execute(statement)).all()
+        return tuple(_followup_request(row) for row in rows)
+
+    async def replace_followup_request_cas(
+        self, record: FollowupRequestRecord, expected_version: int
+    ) -> None:
+        current = await self.get_followup_request(record.tenant_id, record.followup_id)
+        if current.version != expected_version or record.version != expected_version + 1:
+            raise PlatformError("VERSION_CONFLICT", "followup request version compare-and-swap failed")
+        if current.status != "PENDING" or record.status != "ANSWERED":
+            raise PlatformError("INTEGRITY_VIOLATION", "followup request may only PENDING -> ANSWERED")
+        values = _record_values(record)
+        values.pop("tenant_id")
+        values.pop("followup_id")
+        await self._replace_cas(
+            followup_request_table,
+            followup_request_table.c.followup_id,
+            record.followup_id,
+            record.tenant_id,
+            values,
+            expected_version,
+        )
+
     async def replace_effect_cas(self, record: EffectLedgerRecord, expected_version: int) -> None:
         current = await self.get_effect(record.tenant_id, record.effect_id)
         if current.version != expected_version or record.version != expected_version + 1:
@@ -1774,6 +1845,16 @@ class SqlAlchemyPlatformStore:
 
     async def get_effect(self, tenant_id: str, effect_id: str) -> EffectLedgerRecord:
         return await self._read(lambda tx: tx.get_effect(tenant_id, effect_id))
+
+    async def get_followup_request(
+        self, tenant_id: str, followup_id: str
+    ) -> FollowupRequestRecord:
+        return await self._read(lambda tx: tx.get_followup_request(tenant_id, followup_id))
+
+    async def list_followup_requests(
+        self, tenant_id: str, run_id: str
+    ) -> tuple[FollowupRequestRecord, ...]:
+        return await self._read(lambda tx: tx.list_followup_requests(tenant_id, run_id))
 
     async def get_effect_by_key(
         self, tenant_id: str, effect_key: str

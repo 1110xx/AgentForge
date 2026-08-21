@@ -9,10 +9,16 @@ from fastapi.responses import StreamingResponse
 from pydantic import Field
 
 from enterprise_agent_platform.artifacts.downloads import ArtifactDownloadRequest
-from enterprise_agent_platform.contracts.commands import CreateRunCommand, UiActionCommand
+from enterprise_agent_platform.contracts.commands import (
+    CreateRunCommand,
+    FollowupCommand,
+    UiActionCommand,
+)
 from enterprise_agent_platform.contracts.errors import ApiErrorEnvelope
 from enterprise_agent_platform.contracts.models import (
     ArtifactDownloadAuthorization,
+    FollowupAnswer,
+    FollowupHistoryPage,
     RunEventPage,
     RunViewSnapshot,
     StrictModel,
@@ -21,6 +27,8 @@ from enterprise_agent_platform.contracts.models import (
 from enterprise_agent_platform.control.context import RequestContext
 from enterprise_agent_platform.control.effect_recovery import FailedEffectRecoveryService
 from enterprise_agent_platform.control.views import RunQueryService
+from enterprise_agent_platform.execution.session import SessionProviderError
+from enterprise_agent_platform.persistence.protocol import PlatformError
 from enterprise_agent_platform.integration.host import (
     HostPortError,
     resolve_run_authorization,
@@ -346,6 +354,59 @@ def create_agent_platform_router(container: AgentPlatformContainer) -> APIRouter
             )
         await container.ui_actions.handle(ctx, command, idempotency_key=key)
         return await query.get_snapshot(ctx.tenant_id, run_id)
+
+    @router.post(
+        "/runs/{run_id}/followups",
+        response_model=FollowupAnswer,
+        operation_id="submitFollowup",
+        responses=_error_responses(401, 403, 404, 422, 500, 503),
+    )
+    async def submit_followup(
+        run_id: str,
+        command: FollowupCommand,
+        ctx: Annotated[RequestContext, Depends(context)],
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> FollowupAnswer:
+        """Append a read-only follow-up question to the Run's model session."""
+        require_scope(ctx, "runs:read")
+        key = _idempotency_key(idempotency_key)
+        if command.run_id != run_id or command.client_followup_id != idempotency_key:
+            raise HostPortError(
+                "REQUEST_VALIDATION_FAILED", "follow-up identity does not match the request"
+            )
+        if container.followups is None:
+            raise HostPortError(
+                "HOST_PORT_UNAVAILABLE",
+                "follow-up handling is not configured",
+                retryable=True,
+            )
+        try:
+            return await container.followups.followup(ctx, run_id, command, idempotency_key=key)
+        except SessionProviderError as e:
+            raise PlatformError(e.code, e.message) from e
+
+    @router.get(
+        "/runs/{run_id}/followups",
+        response_model=FollowupHistoryPage,
+        operation_id="listFollowups",
+        responses=_error_responses(401, 403, 404, 422, 500),
+    )
+    async def list_followups(
+        run_id: str,
+        ctx: Annotated[RequestContext, Depends(context)],
+    ) -> FollowupHistoryPage:
+        """Return the follow-up history for a Run."""
+        require_scope(ctx, "runs:read")
+        if container.followups is None:
+            raise HostPortError(
+                "HOST_PORT_UNAVAILABLE",
+                "follow-up handling is not configured",
+                retryable=True,
+            )
+        try:
+            return await container.followups.list_followups(ctx, run_id)
+        except SessionProviderError as e:
+            raise PlatformError(e.code, e.message) from e
 
     @router.get(
         "/runs/{run_id}/artifacts/{artifact_id}/versions/{version}/download-authorization",

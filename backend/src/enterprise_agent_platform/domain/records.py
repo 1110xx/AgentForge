@@ -372,6 +372,28 @@ class IdempotencyRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class FollowupRequestRecord:
+    """A durable follow-up question awaiting execution by a new Attempt.
+
+    ``status`` is one of ``PENDING`` / ``ANSWERED``. The question is read by
+    the parent orchestrator during ``restore`` and injected into the child
+    Runner's workflow cursor; the answer is written back by the orchestrator
+    when the follow-up Attempt commits.
+    """
+
+    tenant_id: str
+    followup_id: str
+    run_id: str
+    question: str
+    client_followup_id: str
+    status: str
+    answer: str | None
+    version: int
+    created_at: datetime
+    answered_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
 class OutboxMessageRecord:
     tenant_id: str
     message_id: str

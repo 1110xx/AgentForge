@@ -1218,6 +1218,25 @@ execution_error_table = Table(
     _version_check("execution_error"),
 )
 
+followup_request_table = Table(
+    "followup_request",
+    metadata,
+    _tenant(),
+    Column("followup_id", ID, nullable=False),
+    Column("run_id", ID, nullable=False),
+    Column("question", Text, nullable=False),
+    Column("client_followup_id", String(255), nullable=False),
+    Column("status", STATE, nullable=False),
+    Column("answer", Text),
+    Column("version", Integer, nullable=False),
+    Column("created_at", TIMESTAMP, nullable=False),
+    Column("answered_at", TIMESTAMP),
+    PrimaryKeyConstraint("tenant_id", "followup_id", name="pk_followup_request"),
+    _fk(["tenant_id", "run_id"], ["run.tenant_id", "run.run_id"], name="fk_followup_request_tenant_run"),
+    _enum_check("followup_request", "status", ["PENDING", "ANSWERED"]),
+    _version_check("followup_request"),
+)
+
 idempotency_record_table = Table(
     "idempotency_record",
     metadata,
@@ -1260,6 +1279,7 @@ __all__ = [
     "execution_error_table",
     "execution_lease_table",
     "execution_unit_table",
+    "followup_request_table",
     "idempotency_record_table",
     "inbox_message_table",
     "metadata",

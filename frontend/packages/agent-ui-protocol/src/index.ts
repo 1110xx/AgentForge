@@ -798,6 +798,80 @@ export const UiActionCommand = z
 export type UiActionCommand = z.infer<typeof UiActionCommand>;
 
 /* ------------------------------------------------------------------ */
+/* Followup (mirrors contracts/commands.py, contracts/models.py)       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * POST /v1/runs/{run_id}/followups 请求体
+ *
+ * Mirrors backend ``FollowupCommand`` in contracts/commands.py.
+ * The backend silently enforces ``read_only=True`` — the frontend does
+ * NOT send that field; the wire shape is kept in lockstep with the
+ * Pydantic ``StrictModel(extra="forbid")``.
+ */
+export const FollowupCommand = z
+  .object({
+    run_id: z.string(),
+    question: z.string().min(1).max(4_000),
+    client_followup_id: z.string(),
+  })
+  .strict();
+export type FollowupCommand = z.infer<typeof FollowupCommand>;
+
+/**
+ * POST /v1/runs/{run_id}/followups 响应体
+ *
+ * Mirrors backend ``FollowupAnswer`` in contracts/models.py.
+ */
+export const FollowupAnswer = z
+  .object({
+    schema_version: z.literal("followup-answer/v1"),
+    run_id: z.string(),
+    session_id: z.string(),
+    question: z.string(),
+    answer: z.string(),
+  })
+  .strict();
+export type FollowupAnswer = z.infer<typeof FollowupAnswer>;
+
+/** 历史记录条目 */
+export const FollowupRecord = z
+  .object({
+    schema_version: z.literal("followup-record/v1"),
+    run_id: z.string(),
+    followup_seq: NonNegativeInt,
+    question: z.string(),
+    answer: z.string(),
+    answered_at: IsoDateTime,
+    client_followup_id: z.string(),
+  })
+  .strict();
+export type FollowupRecord = z.infer<typeof FollowupRecord>;
+
+/** GET /v1/runs/{run_id}/followups 响应 */
+export const FollowupHistoryPage = z
+  .object({
+    schema_version: z.literal("followup-history-page/v1"),
+    run_id: z.string(),
+    total_count: NonNegativeInt,
+    records: z.array(FollowupRecord),
+  })
+  .strict();
+export type FollowupHistoryPage = z.infer<typeof FollowupHistoryPage>;
+
+/** Future: NewTaskDraft (Phase 5 dual-route) */
+export const NewTaskDraft = z
+  .object({
+    schema_version: z.literal("new-task-draft/v1"),
+    run_id: z.string(),
+    task_type: z.string(),
+    params: JsonObjectSchema,
+    summary: z.string(),
+  })
+  .strict();
+export type NewTaskDraft = z.infer<typeof NewTaskDraft>;
+
+/* ------------------------------------------------------------------ */
 /* Errors (mirrors contracts/errors.py)                                */
 /* ------------------------------------------------------------------ */
 

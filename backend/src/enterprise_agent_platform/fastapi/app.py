@@ -85,6 +85,22 @@ def _platform_status(error: PlatformError) -> int:
         "UI_ACTION_NOT_SUPPORTED",
     }:
         return 422
+    if error.code in {
+        "SESSION_ALREADY_OPEN",
+        "SESSION_CLOSED",
+        "SESSION_NOT_FOUND",
+        "TASK_NOT_COMPLETE",
+        "FOLLOWUP_FAILED",
+        "TASK_EXECUTION_FAILED",
+        "API_CALL_FAILED",
+        "PROVIDER_CREATION_FAILED",
+        "WRITE_NOT_ALLOWED",
+        "SESSION_HISTORY_LIMIT",
+        "FOLLOWUP_TIMEOUT",
+        "FOLLOWUP_BUSY",
+        "FOLLOWUP_UNAVAILABLE",
+    }:
+        return 503  # upstream model/session service unavailable
     return 500
 
 
