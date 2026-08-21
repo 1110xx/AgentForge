@@ -60,6 +60,8 @@ def _host_status(error: HostPortError) -> int:
 def _platform_status(error: PlatformError) -> int:
     if error.code == "NOT_FOUND":
         return 404
+    if error.code in {"AUTH_FAILED", "UNAUTHENTICATED", "AUTH_EXPIRED", "AUTH_INVALID"}:
+        return 401
     if error.code in {"ARTIFACT_ACCESS_DENIED", "FORBIDDEN"}:
         return 403
     if error.code in {
@@ -180,6 +182,35 @@ def create_agent_platform_app(container: AgentPlatformContainer) -> FastAPI:
         )
 
     app.include_router(create_agent_platform_router(container))
+
+    # Mount the Internal Runtime API (SDD §13.1, Phase 3 predecessor): the HTTP
+    # transport (K8s/Docker runner) bootstraps and drives the same op handlers
+    # the pipe transport uses. Demo token conventions documented in internal_adapter.
+    from enterprise_agent_platform.fastapi.internal import (
+        SurfaceServicePublisher,
+        create_internal_router,
+    )
+    from enterprise_agent_platform.fastapi.internal_adapter import build_internal_container
+    from enterprise_agent_platform.ui.catalog import A2UI_PROTOCOL_VERSION, PUBLIC_CATALOG_ID
+    from enterprise_agent_platform.ui.service import SurfaceService
+    from enterprise_agent_platform.ui.validator import SurfaceValidator
+
+    surface_service = SurfaceService(
+        store=container.store,
+        validator=SurfaceValidator(
+            catalog_id=PUBLIC_CATALOG_ID,
+            protocol_version=A2UI_PROTOCOL_VERSION,
+        ),
+    )
+    app.include_router(
+        create_internal_router(
+            build_internal_container(
+                store=container.store,
+                surface_publisher=SurfaceServicePublisher(surface_service),
+                control=container.control,
+            )
+        )
+    )
 
     def stable_openapi() -> dict[str, object]:
         if app.openapi_schema is None:
