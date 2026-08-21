@@ -26,26 +26,36 @@ import logging
 import os
 import sys
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from enterprise_agent_platform.contracts.enums import (
+    ActionProposalState,
+    ArtifactVersionState,
     AttemptState,
     EntityType,
+    EventType,
     ExecutionLeaseState,
     ExecutionUnitState,
     RunState,
 )
+from enterprise_agent_platform.contracts.events import (
+    ActionProposalPayload,
+    ArtifactVersionPayload,
+    EnterpriseEventEnvelope,
+)
 from enterprise_agent_platform.control.checkpoints import CheckpointCommit, commit_checkpoint
 from enterprise_agent_platform.control.context import RequestContext
 from enterprise_agent_platform.control.service import ControlPlaneService
+from enterprise_agent_platform.domain.action_digest import compute_action_request_digest
 from enterprise_agent_platform.domain.fsm import transition as _fsm
 from enterprise_agent_platform.domain.records import (
     ActionProposalRecord,
     ArtifactRecord,
     ArtifactVersionRecord,
     DispatchTicket,
+    OutboxMessageRecord,
     RunRecord,
 )
 from enterprise_agent_platform.execution.completer import RunCompleter
@@ -593,9 +603,17 @@ class SubprocessOrchestrator:
 
         now = datetime.now(UTC)
         artifact_id = self._store.new_id("artifact")
-        run = await self._store.get_run(ticket.tenant_id, ticket.run_id)
 
         async with self._store.transaction() as tx:
+            # Lock the run to derive the event sequence and guard terminal state.
+            run = await tx.lock_run(ticket.tenant_id, ticket.run_id)
+            if run.status not in {RunState.QUEUED, RunState.RUNNING}:
+                logger.warning(
+                    "publish_artifact skipped: run=%s not RUNNING (status=%s)",
+                    run.run_id, run.status,
+                )
+                return {"status": "rejected", "reason": "run not RUNNING"}
+
             # Insert artifact master record
             artifact = ArtifactRecord(
                 tenant_id=ticket.tenant_id,
@@ -605,7 +623,9 @@ class SubprocessOrchestrator:
                 artifact_type=classification,
                 classification=classification,
                 retention_policy={"policy": "default"},
-                state="pending",
+                # Master is a directory entry: ACTIVE from birth (content readiness
+                # lives on the version row; SQL CHECK allows only ACTIVE/DELETED).
+                state="ACTIVE",
                 current_version=None,
                 version=1,
                 created_at=now,
@@ -621,7 +641,7 @@ class SubprocessOrchestrator:
                 run_id=run.run_id,
                 source_attempt_id=ticket.attempt_id,
                 generation=ticket.generation,
-                state="PREPARING",
+                state=ArtifactVersionState.STAGING,
                 state_version=1,
                 object_uri="staged:" + workspace_path,
                 checksum="",
@@ -632,6 +652,55 @@ class SubprocessOrchestrator:
                 ready_at=None,
             )
             await tx.insert_artifact_version(version_record)
+
+            # Emit ARTIFACT_VERSION event + outbox so subscribers see the
+            # staged version (finalized at commit time, per runner contract).
+            artifact_event = EnterpriseEventEnvelope(
+                schema_version="enterprise-event/v1",
+                event_id=self._store.new_id("event"),
+                tenant_id=ticket.tenant_id,
+                run_id=run.run_id,
+                event_seq=run.last_event_seq + 1,
+                event_type=EventType.ARTIFACT_VERSION,
+                occurred_at=now,
+                producer_service="subprocess-orchestrator",
+                payload_schema="artifact-version/v1",
+                payload=ArtifactVersionPayload(
+                    kind="artifact.version",
+                    artifact_id=artifact_id,
+                    run_id=run.run_id,
+                    logical_name=logical_name,
+                    classification=classification,
+                    version=1,
+                    state="STAGING",
+                ),
+                attempt_id=ticket.attempt_id,
+                trace_id=ctx.trace_id,
+            )
+            await tx.append_event(artifact_event, run.last_event_seq)
+            await tx.insert_outbox(
+                OutboxMessageRecord(
+                    tenant_id=ticket.tenant_id,
+                    message_id=self._store.new_id("outbox"),
+                    run_id=run.run_id,
+                    topic="artifact.prepared",
+                    payload={"artifact_id": artifact_id, "version": 1},
+                    event_id=artifact_event.event_id,
+                    aggregate_version=run.version + 1,
+                    created_at=now,
+                    published_at=None,
+                )
+            )
+            # Advance the run event watermark (mirrors checkpoint commit pattern).
+            await tx.replace_run_cas(
+                replace(
+                    run,
+                    version=run.version + 1,
+                    last_event_seq=artifact_event.event_seq,
+                    updated_at=now,
+                ),
+                run.version,
+            )
 
         logger.info(
             "Artifact recorded: run=%s artifact=%s logical_name=%s classification=%s",
@@ -667,9 +736,42 @@ class SubprocessOrchestrator:
             }
 
         now = datetime.now(UTC)
-        run = await self._store.get_run(ticket.tenant_id, ticket.run_id)
+        # Authority facts: the child may provide them explicitly; otherwise the
+        # proxy defaults to a canonical self-targeted action so the digest is
+        # always well-defined and approval decisions stay verifiable.
+        tool_name = str(kwargs.get("tool_name", "remote_propose_action"))
+        tool_spec_version = str(kwargs.get("tool_spec_version", "1.0"))
+        tool_spec_digest = str(kwargs.get("tool_spec_digest", "sha256:proposed"))
+        connector_name = str(kwargs.get("connector_name", "control-plane-default"))
+        required_scopes = tuple(sorted(set(kwargs.get("required_scopes", ("actions:execute",)))))
+        canonical_target = str(kwargs.get("canonical_target", "action://" + action_ref))
+        canonical_payload_digest = (
+            str(kwargs.get("canonical_payload_digest"))
+            or ("sha256:" + canonical_payload_ref if canonical_payload_ref else "")
+        )
+        risk_class = str(kwargs.get("risk_class", "unknown"))
+        request_digest = compute_action_request_digest(
+            action_ref=action_ref,
+            tool_name=tool_name,
+            tool_spec_version=tool_spec_version,
+            tool_spec_digest=tool_spec_digest,
+            connector_name=connector_name,
+            required_scopes=required_scopes,
+            canonical_target=canonical_target,
+            canonical_payload_digest=canonical_payload_digest,
+            risk_class=risk_class,
+        )
 
         async with self._store.transaction() as tx:
+            # Lock the run to derive the event sequence and guard terminal state.
+            run = await tx.lock_run(ticket.tenant_id, ticket.run_id)
+            if run.status not in {RunState.QUEUED, RunState.RUNNING}:
+                logger.warning(
+                    "propose_action skipped: run=%s not RUNNING (status=%s)",
+                    run.run_id, run.status,
+                )
+                return {"status": "rejected", "reason": "run not RUNNING"}
+
             proposal = ActionProposalRecord(
                 tenant_id=ticket.tenant_id,
                 action_ref=action_ref,
@@ -678,22 +780,69 @@ class SubprocessOrchestrator:
                 attempt_id=ticket.attempt_id,
                 execution_unit_id=ticket.execution_unit_id,
                 source_generation=ticket.generation,
-                tool_name="remote_propose_action",
-                tool_spec_version="1.0",
-                tool_spec_digest="sha256:proposed",
-                connector_name="",
-                required_scopes=(),
-                request_digest="sha256:" + action_ref,
-                canonical_payload_digest="sha256:" + canonical_payload_ref if canonical_payload_ref else "",
-                canonical_target="",
-                risk_class="unknown",
-                status="OPEN",
+                tool_name=tool_name,
+                tool_spec_version=tool_spec_version,
+                tool_spec_digest=tool_spec_digest,
+                connector_name=connector_name,
+                required_scopes=required_scopes,
+                canonical_payload_digest=canonical_payload_digest,
+                canonical_target=canonical_target,
+                risk_class=risk_class,
+                status=ActionProposalState.OPEN,
                 version=1,
+                request_digest=request_digest,
                 payload_ref=canonical_payload_ref,
                 created_at=now,
-                expires_at=now,
+                expires_at=now + timedelta(days=7),
             )
             await tx.insert_action_proposal(proposal)
+
+            # Emit ACTION_PROPOSAL event + outbox so approvers see the proposal.
+            proposal_event = EnterpriseEventEnvelope(
+                schema_version="enterprise-event/v1",
+                event_id=self._store.new_id("event"),
+                tenant_id=ticket.tenant_id,
+                run_id=run.run_id,
+                event_seq=run.last_event_seq + 1,
+                event_type=EventType.ACTION_PROPOSAL,
+                occurred_at=now,
+                producer_service="subprocess-orchestrator",
+                payload_schema="action-proposal/v1",
+                payload=ActionProposalPayload(
+                    kind="action.proposal",
+                    action_ref=action_ref,
+                    run_id=run.run_id,
+                    attempt_id=ticket.attempt_id,
+                    proposal_state="OPEN",
+                    risk_class="unknown",
+                ),
+                attempt_id=ticket.attempt_id,
+                trace_id=ctx.trace_id,
+            )
+            await tx.append_event(proposal_event, run.last_event_seq)
+            await tx.insert_outbox(
+                OutboxMessageRecord(
+                    tenant_id=ticket.tenant_id,
+                    message_id=self._store.new_id("outbox"),
+                    run_id=run.run_id,
+                    topic="action.proposed",
+                    payload={"action_ref": action_ref},
+                    event_id=proposal_event.event_id,
+                    aggregate_version=run.version + 1,
+                    created_at=now,
+                    published_at=None,
+                )
+            )
+            # Advance the run event watermark (mirrors checkpoint commit pattern).
+            await tx.replace_run_cas(
+                replace(
+                    run,
+                    version=run.version + 1,
+                    last_event_seq=proposal_event.event_seq,
+                    updated_at=now,
+                ),
+                run.version,
+            )
 
         logger.info(
             "Action proposal recorded: run=%s action_ref=%s",

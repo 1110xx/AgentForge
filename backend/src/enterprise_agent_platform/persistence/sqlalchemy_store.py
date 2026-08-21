@@ -132,407 +132,407 @@ def _record_values(record: Any) -> dict[str, object]:
 
 def _run(row: Any) -> RunRecord:
     return RunRecord(
-        tenant_id=row["tenant_id"],
-        run_id=row["run_id"],
-        owner_id=row["owner_id"],
-        parent_run_id=row["parent_run_id"],
-        workflow_type=row["workflow_type"],
-        intent=row["intent"],
-        resource_refs=tuple(row["resource_refs"]),
-        parameters=_canonical_json(row["parameters"]),
-        host_context_ref=row["host_context_ref"],
-        status=RunState(row["status"]),
-        status_reason=row["status_reason"],
-        version=row["version"],
-        last_event_seq=row["last_event_seq"],
-        fsm_version=row["fsm_version"],
-        cancel_requested_by=row["cancel_requested_by"],
-        cancel_requested_at=_aware(row["cancel_requested_at"]),
-        cancel_reason=row["cancel_reason"],
-        created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
-        updated_at=_aware(row["updated_at"]),  # type: ignore[arg-type]
-        ended_at=_aware(row["ended_at"]),
+        tenant_id=row._mapping["tenant_id"],
+        run_id=row._mapping["run_id"],
+        owner_id=row._mapping["owner_id"],
+        parent_run_id=row._mapping["parent_run_id"],
+        workflow_type=row._mapping["workflow_type"],
+        intent=row._mapping["intent"],
+        resource_refs=tuple(row._mapping["resource_refs"]),
+        parameters=_canonical_json(row._mapping["parameters"]),
+        host_context_ref=row._mapping["host_context_ref"],
+        status=RunState(row._mapping["status"]),
+        status_reason=row._mapping["status_reason"],
+        version=row._mapping["version"],
+        last_event_seq=row._mapping["last_event_seq"],
+        fsm_version=row._mapping["fsm_version"],
+        cancel_requested_by=row._mapping["cancel_requested_by"],
+        cancel_requested_at=_aware(row._mapping["cancel_requested_at"]),
+        cancel_reason=row._mapping["cancel_reason"],
+        created_at=_aware(row._mapping["created_at"]),  # type: ignore[arg-type]
+        updated_at=_aware(row._mapping["updated_at"]),  # type: ignore[arg-type]
+        ended_at=_aware(row._mapping["ended_at"]),
     )
 
 
 def _authorization_snapshot(row: Any) -> RunAuthorizationSnapshotRecord:
     return RunAuthorizationSnapshotRecord(
-        tenant_id=row["tenant_id"],
-        run_id=row["run_id"],
-        resolved_resources=tuple(_canonical_json(item) for item in row["resolved_resources"]),
-        host_context_digest=row["host_context_digest"],
-        host_context_version=row["host_context_version"],
-        policy_digest=row["policy_digest"],
-        policy_version=row["policy_version"],
-        policy_scopes=tuple(row["policy_scopes"]),
-        policy_budget=_canonical_json(row["policy_budget"]),
-        snapshot_digest=row["snapshot_digest"],
-        created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
+        tenant_id=row._mapping["tenant_id"],
+        run_id=row._mapping["run_id"],
+        resolved_resources=tuple(_canonical_json(item) for item in row._mapping["resolved_resources"]),
+        host_context_digest=row._mapping["host_context_digest"],
+        host_context_version=row._mapping["host_context_version"],
+        policy_digest=row._mapping["policy_digest"],
+        policy_version=row._mapping["policy_version"],
+        policy_scopes=tuple(row._mapping["policy_scopes"]),
+        policy_budget=_canonical_json(row._mapping["policy_budget"]),
+        snapshot_digest=row._mapping["snapshot_digest"],
+        created_at=_aware(row._mapping["created_at"]),  # type: ignore[arg-type]
     )
 
 
 def _unit(row: Any) -> ExecutionUnitRecord:
     return ExecutionUnitRecord(
-        tenant_id=row["tenant_id"],
-        execution_unit_id=row["execution_unit_id"],
-        run_id=row["run_id"],
-        role=row["role"],
-        status=ExecutionUnitState(row["status"]),
-        version=row["version"],
-        current_checkpoint_id=row["current_checkpoint_id"],
-        next_generation=row["next_generation"],
-        runtime_profile=row["runtime_profile"],
-        created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
-        updated_at=_aware(row["updated_at"]),  # type: ignore[arg-type]
+        tenant_id=row._mapping["tenant_id"],
+        execution_unit_id=row._mapping["execution_unit_id"],
+        run_id=row._mapping["run_id"],
+        role=row._mapping["role"],
+        status=ExecutionUnitState(row._mapping["status"]),
+        version=row._mapping["version"],
+        current_checkpoint_id=row._mapping["current_checkpoint_id"],
+        next_generation=row._mapping["next_generation"],
+        runtime_profile=row._mapping["runtime_profile"],
+        created_at=_aware(row._mapping["created_at"]),  # type: ignore[arg-type]
+        updated_at=_aware(row._mapping["updated_at"]),  # type: ignore[arg-type]
     )
 
 
 def _checkpoint(row: Any) -> CheckpointRecord:
     return CheckpointRecord(
-        tenant_id=row["tenant_id"],
-        checkpoint_id=row["checkpoint_id"],
-        run_id=row["run_id"],
-        execution_unit_id=row["execution_unit_id"],
-        source_attempt_id=row["source_attempt_id"],
-        checkpoint_seq=row["checkpoint_seq"],
-        state=CheckpointState(row["state"]),
-        workflow_cursor=_canonical_json(row["workflow_cursor"]),
-        last_event_seq=row["last_event_seq"],
-        workspace_snapshot_id=row["workspace_snapshot_id"],
-        checkpoint_schema_version=row["checkpoint_schema_version"],
-        runtime_profile_version=row["runtime_profile_version"],
-        policy_version=row["policy_version"],
-        tool_catalog_version=row["tool_catalog_version"],
-        ui_catalog_version=row["ui_catalog_version"],
-        checksum=row["checksum"],
-        version=row["version"],
-        created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
-        committed_at=_aware(row["committed_at"]),
-        completed_step_ids=tuple(row["completed_step_ids"]),
-        active_step_context=_canonical_json(row["active_step_context"]),
+        tenant_id=row._mapping["tenant_id"],
+        checkpoint_id=row._mapping["checkpoint_id"],
+        run_id=row._mapping["run_id"],
+        execution_unit_id=row._mapping["execution_unit_id"],
+        source_attempt_id=row._mapping["source_attempt_id"],
+        checkpoint_seq=row._mapping["checkpoint_seq"],
+        state=CheckpointState(row._mapping["state"]),
+        workflow_cursor=_canonical_json(row._mapping["workflow_cursor"]),
+        last_event_seq=row._mapping["last_event_seq"],
+        workspace_snapshot_id=row._mapping["workspace_snapshot_id"],
+        checkpoint_schema_version=row._mapping["checkpoint_schema_version"],
+        runtime_profile_version=row._mapping["runtime_profile_version"],
+        policy_version=row._mapping["policy_version"],
+        tool_catalog_version=row._mapping["tool_catalog_version"],
+        ui_catalog_version=row._mapping["ui_catalog_version"],
+        checksum=row._mapping["checksum"],
+        version=row._mapping["version"],
+        created_at=_aware(row._mapping["created_at"]),  # type: ignore[arg-type]
+        committed_at=_aware(row._mapping["committed_at"]),
+        completed_step_ids=tuple(row._mapping["completed_step_ids"]),
+        active_step_context=_canonical_json(row._mapping["active_step_context"]),
         input_artifact_versions=tuple(
-            _canonical_json(item) for item in row["input_artifact_versions"]
+            _canonical_json(item) for item in row._mapping["input_artifact_versions"]
         ),
         output_artifact_versions=tuple(
-            _canonical_json(item) for item in row["output_artifact_versions"]
+            _canonical_json(item) for item in row._mapping["output_artifact_versions"]
         ),
-        resolved_tool_call_ids=tuple(row["resolved_tool_call_ids"]),
-        effect_states=_canonical_json(row["effect_states"]),
-        budget_consumed=_canonical_json(row["budget_consumed"]),
-        model_context_summary_ref=row["model_context_summary_ref"],
-        runtime_image_digest=row["runtime_image_digest"],
-        agent_state=_canonical_json(row["agent_state"]),
-        agent_state_schema_version=row["agent_state_schema_version"],
+        resolved_tool_call_ids=tuple(row._mapping["resolved_tool_call_ids"]),
+        effect_states=_canonical_json(row._mapping["effect_states"]),
+        budget_consumed=_canonical_json(row._mapping["budget_consumed"]),
+        model_context_summary_ref=row._mapping["model_context_summary_ref"],
+        runtime_image_digest=row._mapping["runtime_image_digest"],
+        agent_state=_canonical_json(row._mapping["agent_state"]),
+        agent_state_schema_version=row._mapping["agent_state_schema_version"],
     )
 
 
 def _step(row: Any) -> StepRecord:
     return StepRecord(
-        tenant_id=row["tenant_id"],
-        step_id=row["step_id"],
-        run_id=row["run_id"],
-        ordinal=row["ordinal"],
-        name=row["name"],
-        step_type=row["step_type"],
-        policy_snapshot=_canonical_json(row["policy_snapshot"]),
-        status=StepState(row["status"]),
-        status_reason=row["status_reason"],
-        version=row["version"],
-        created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
-        updated_at=_aware(row["updated_at"]),  # type: ignore[arg-type]
-        ended_at=_aware(row["ended_at"]),
+        tenant_id=row._mapping["tenant_id"],
+        step_id=row._mapping["step_id"],
+        run_id=row._mapping["run_id"],
+        ordinal=row._mapping["ordinal"],
+        name=row._mapping["name"],
+        step_type=row._mapping["step_type"],
+        policy_snapshot=_canonical_json(row._mapping["policy_snapshot"]),
+        status=StepState(row._mapping["status"]),
+        status_reason=row._mapping["status_reason"],
+        version=row._mapping["version"],
+        created_at=_aware(row._mapping["created_at"]),  # type: ignore[arg-type]
+        updated_at=_aware(row._mapping["updated_at"]),  # type: ignore[arg-type]
+        ended_at=_aware(row._mapping["ended_at"]),
     )
 
 
 def _attempt(row: Any) -> AttemptRecord:
     return AttemptRecord(
-        tenant_id=row["tenant_id"],
-        attempt_id=row["attempt_id"],
-        run_id=row["run_id"],
-        execution_unit_id=row["execution_unit_id"],
-        step_id=row["step_id"],
-        generation=row["generation"],
-        status=AttemptState(row["status"]),
-        version=row["version"],
-        runtime_profile=row["runtime_profile"],
-        source_checkpoint_id=row["source_checkpoint_id"],
-        reservation_key=row["reservation_key"],
-        created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
-        updated_at=_aware(row["updated_at"]),  # type: ignore[arg-type]
-        started_at=_aware(row["started_at"]),
-        ended_at=_aware(row["ended_at"]),
-        failure_id=row["failure_id"],
+        tenant_id=row._mapping["tenant_id"],
+        attempt_id=row._mapping["attempt_id"],
+        run_id=row._mapping["run_id"],
+        execution_unit_id=row._mapping["execution_unit_id"],
+        step_id=row._mapping["step_id"],
+        generation=row._mapping["generation"],
+        status=AttemptState(row._mapping["status"]),
+        version=row._mapping["version"],
+        runtime_profile=row._mapping["runtime_profile"],
+        source_checkpoint_id=row._mapping["source_checkpoint_id"],
+        reservation_key=row._mapping["reservation_key"],
+        created_at=_aware(row._mapping["created_at"]),  # type: ignore[arg-type]
+        updated_at=_aware(row._mapping["updated_at"]),  # type: ignore[arg-type]
+        started_at=_aware(row._mapping["started_at"]),
+        ended_at=_aware(row._mapping["ended_at"]),
+        failure_id=row._mapping["failure_id"],
     )
 
 
 def _lease(row: Any) -> ExecutionLeaseRecord:
     return ExecutionLeaseRecord(
-        tenant_id=row["tenant_id"],
-        lease_id=row["lease_id"],
-        run_id=row["run_id"],
-        execution_unit_id=row["execution_unit_id"],
-        attempt_id=row["attempt_id"],
-        generation=row["generation"],
-        state=ExecutionLeaseState(row["state"]),
-        owner=row["lease_owner"],
-        version=row["version"],
-        activated_from_version=row["activated_from_version"],
-        provision_deadline=_aware(row["provision_deadline"]),  # type: ignore[arg-type]
-        heartbeat_at=_aware(row["heartbeat_at"]),
-        expires_at=_aware(row["lease_expires_at"]),
-        released_at=_aware(row["released_at"]),
-        created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
-        updated_at=_aware(row["updated_at"]),  # type: ignore[arg-type]
+        tenant_id=row._mapping["tenant_id"],
+        lease_id=row._mapping["lease_id"],
+        run_id=row._mapping["run_id"],
+        execution_unit_id=row._mapping["execution_unit_id"],
+        attempt_id=row._mapping["attempt_id"],
+        generation=row._mapping["generation"],
+        state=ExecutionLeaseState(row._mapping["state"]),
+        owner=row._mapping["lease_owner"],
+        version=row._mapping["version"],
+        activated_from_version=row._mapping["activated_from_version"],
+        provision_deadline=_aware(row._mapping["provision_deadline"]),  # type: ignore[arg-type]
+        heartbeat_at=_aware(row._mapping["heartbeat_at"]),
+        expires_at=_aware(row._mapping["lease_expires_at"]),
+        released_at=_aware(row._mapping["released_at"]),
+        created_at=_aware(row._mapping["created_at"]),  # type: ignore[arg-type]
+        updated_at=_aware(row._mapping["updated_at"]),  # type: ignore[arg-type]
     )
 
 
 def _workspace_snapshot(row: Any) -> WorkspaceSnapshotRecord:
     return WorkspaceSnapshotRecord(
-        tenant_id=row["tenant_id"],
-        snapshot_id=row["snapshot_id"],
-        run_id=row["run_id"],
-        source_attempt_id=row["source_attempt_id"],
-        execution_unit_id=row["execution_unit_id"],
-        generation=row["generation"],
-        state=WorkspaceSnapshotState(row["state"]),
-        manifest_uri=row["manifest_uri"],
-        checksum=row["checksum"],
-        size_bytes=row["size_bytes"],
-        runtime_image_digest=row["runtime_image_digest"],
-        version=row["version"],
-        created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
-        ready_at=_aware(row["ready_at"]),
+        tenant_id=row._mapping["tenant_id"],
+        snapshot_id=row._mapping["snapshot_id"],
+        run_id=row._mapping["run_id"],
+        source_attempt_id=row._mapping["source_attempt_id"],
+        execution_unit_id=row._mapping["execution_unit_id"],
+        generation=row._mapping["generation"],
+        state=WorkspaceSnapshotState(row._mapping["state"]),
+        manifest_uri=row._mapping["manifest_uri"],
+        checksum=row._mapping["checksum"],
+        size_bytes=row._mapping["size_bytes"],
+        runtime_image_digest=row._mapping["runtime_image_digest"],
+        version=row._mapping["version"],
+        created_at=_aware(row._mapping["created_at"]),  # type: ignore[arg-type]
+        ready_at=_aware(row._mapping["ready_at"]),
     )
 
 
 def _artifact(row: Any) -> ArtifactRecord:
     return ArtifactRecord(
-        tenant_id=row["tenant_id"],
-        artifact_id=row["artifact_id"],
-        run_id=row["run_id"],
-        logical_name=row["logical_name"],
-        artifact_type=row["artifact_type"],
-        classification=row["classification"],
-        retention_policy=_canonical_json(row["retention_policy"]),
-        state=row["state"],
-        current_version=row["current_version"],
-        version=row["version"],
-        created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
-        updated_at=_aware(row["updated_at"]),  # type: ignore[arg-type]
+        tenant_id=row._mapping["tenant_id"],
+        artifact_id=row._mapping["artifact_id"],
+        run_id=row._mapping["run_id"],
+        logical_name=row._mapping["logical_name"],
+        artifact_type=row._mapping["artifact_type"],
+        classification=row._mapping["classification"],
+        retention_policy=_canonical_json(row._mapping["retention_policy"]),
+        state=row._mapping["state"],
+        current_version=row._mapping["current_version"],
+        version=row._mapping["version"],
+        created_at=_aware(row._mapping["created_at"]),  # type: ignore[arg-type]
+        updated_at=_aware(row._mapping["updated_at"]),  # type: ignore[arg-type]
     )
 
 
 def _artifact_version(row: Any) -> ArtifactVersionRecord:
     return ArtifactVersionRecord(
-        tenant_id=row["tenant_id"],
-        artifact_id=row["artifact_id"],
-        version=row["version"],
-        run_id=row["run_id"],
-        source_attempt_id=row["source_attempt_id"],
-        generation=row["generation"],
-        state=ArtifactVersionState(row["state"]),
-        state_version=row["state_version"],
-        object_uri=row["object_uri"],
-        checksum=row["checksum"],
-        size_bytes=row["size_bytes"],
-        media_type=row["media_type"],
-        lineage=_canonical_json(row["lineage"]),
-        created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
-        ready_at=_aware(row["ready_at"]),
+        tenant_id=row._mapping["tenant_id"],
+        artifact_id=row._mapping["artifact_id"],
+        version=row._mapping["version"],
+        run_id=row._mapping["run_id"],
+        source_attempt_id=row._mapping["source_attempt_id"],
+        generation=row._mapping["generation"],
+        state=ArtifactVersionState(row._mapping["state"]),
+        state_version=row._mapping["state_version"],
+        object_uri=row._mapping["object_uri"],
+        checksum=row._mapping["checksum"],
+        size_bytes=row._mapping["size_bytes"],
+        media_type=row._mapping["media_type"],
+        lineage=_canonical_json(row._mapping["lineage"]),
+        created_at=_aware(row._mapping["created_at"]),  # type: ignore[arg-type]
+        ready_at=_aware(row._mapping["ready_at"]),
     )
 
 
 def _ui_surface(row: Any) -> UiSurfaceRecord:
     return UiSurfaceRecord(
-        tenant_id=row["tenant_id"],
-        surface_id=row["surface_id"],
-        run_id=row["run_id"],
-        catalog_id=row["catalog_id"],
-        protocol_version=row["protocol_version"],
-        current_revision=row["current_revision"],
-        status=row["status"],
-        version=row["version"],
-        created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
-        updated_at=_aware(row["updated_at"]),  # type: ignore[arg-type]
+        tenant_id=row._mapping["tenant_id"],
+        surface_id=row._mapping["surface_id"],
+        run_id=row._mapping["run_id"],
+        catalog_id=row._mapping["catalog_id"],
+        protocol_version=row._mapping["protocol_version"],
+        current_revision=row._mapping["current_revision"],
+        status=row._mapping["status"],
+        version=row._mapping["version"],
+        created_at=_aware(row._mapping["created_at"]),  # type: ignore[arg-type]
+        updated_at=_aware(row._mapping["updated_at"]),  # type: ignore[arg-type]
     )
 
 
 def _ui_surface_revision(row: Any) -> UiSurfaceRevisionRecord:
     return UiSurfaceRevisionRecord(
-        tenant_id=row["tenant_id"],
-        surface_id=row["surface_id"],
-        revision=row["revision"],
-        run_id=row["run_id"],
-        source_attempt_id=row["source_attempt_id"],
-        source_generation=row["source_generation"],
-        source_event_seq=row["source_event_seq"],
-        document=_canonical_json(row["document"]),
-        checksum=row["checksum"],
-        validation_result=_canonical_json(row["validation_result"]),
-        created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
+        tenant_id=row._mapping["tenant_id"],
+        surface_id=row._mapping["surface_id"],
+        revision=row._mapping["revision"],
+        run_id=row._mapping["run_id"],
+        source_attempt_id=row._mapping["source_attempt_id"],
+        source_generation=row._mapping["source_generation"],
+        source_event_seq=row._mapping["source_event_seq"],
+        document=_canonical_json(row._mapping["document"]),
+        checksum=row._mapping["checksum"],
+        validation_result=_canonical_json(row._mapping["validation_result"]),
+        created_at=_aware(row._mapping["created_at"]),  # type: ignore[arg-type]
     )
 
 
 def _action_proposal(row: Any) -> ActionProposalRecord:
     return ActionProposalRecord(
-        tenant_id=row["tenant_id"],
-        action_ref=row["action_ref"],
-        run_id=row["run_id"],
-        step_id=row["step_id"],
-        attempt_id=row["attempt_id"],
-        execution_unit_id=row["execution_unit_id"],
-        source_generation=row["source_generation"],
-        tool_name=row["tool_name"],
-        tool_spec_version=row["tool_spec_version"],
-        tool_spec_digest=row["tool_spec_digest"],
-        connector_name=row["connector_name"],
-        required_scopes=tuple(row["required_scopes"]),
-        request_digest=row["request_digest"],
-        canonical_payload_digest=row["canonical_payload_digest"],
-        canonical_target=row["canonical_target"],
-        risk_class=row["risk_class"],
-        status=ActionProposalState(row["status"]),
-        version=row["version"],
-        payload_ref=row["payload_ref"],
-        created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
-        expires_at=_aware(row["expires_at"]),  # type: ignore[arg-type]
+        tenant_id=row._mapping["tenant_id"],
+        action_ref=row._mapping["action_ref"],
+        run_id=row._mapping["run_id"],
+        step_id=row._mapping["step_id"],
+        attempt_id=row._mapping["attempt_id"],
+        execution_unit_id=row._mapping["execution_unit_id"],
+        source_generation=row._mapping["source_generation"],
+        tool_name=row._mapping["tool_name"],
+        tool_spec_version=row._mapping["tool_spec_version"],
+        tool_spec_digest=row._mapping["tool_spec_digest"],
+        connector_name=row._mapping["connector_name"],
+        required_scopes=tuple(row._mapping["required_scopes"]),
+        request_digest=row._mapping["request_digest"],
+        canonical_payload_digest=row._mapping["canonical_payload_digest"],
+        canonical_target=row._mapping["canonical_target"],
+        risk_class=row._mapping["risk_class"],
+        status=ActionProposalState(row._mapping["status"]),
+        version=row._mapping["version"],
+        payload_ref=row._mapping["payload_ref"],
+        created_at=_aware(row._mapping["created_at"]),  # type: ignore[arg-type]
+        expires_at=_aware(row._mapping["expires_at"]),  # type: ignore[arg-type]
     )
 
 
 def _approval_request(row: Any) -> ApprovalRequestRecord:
     return ApprovalRequestRecord(
-        tenant_id=row["tenant_id"],
-        approval_id=row["approval_id"],
-        run_id=row["run_id"],
-        step_id=row["step_id"],
-        action_ref=row["action_ref"],
-        approval_type=row["approval_type"],
-        request_digest=row["request_digest"],
-        status=ApprovalState(row["status"]),
-        version=row["version"],
-        canonical_request_ref=row["canonical_request_ref"],
-        expires_at=_aware(row["expires_at"]),  # type: ignore[arg-type]
-        decided_by=row["decided_by"],
-        decided_at=_aware(row["decided_at"]),
-        decision_reason=row["decision_reason"],
-        created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
-        updated_at=_aware(row["updated_at"]),  # type: ignore[arg-type]
+        tenant_id=row._mapping["tenant_id"],
+        approval_id=row._mapping["approval_id"],
+        run_id=row._mapping["run_id"],
+        step_id=row._mapping["step_id"],
+        action_ref=row._mapping["action_ref"],
+        approval_type=row._mapping["approval_type"],
+        request_digest=row._mapping["request_digest"],
+        status=ApprovalState(row._mapping["status"]),
+        version=row._mapping["version"],
+        canonical_request_ref=row._mapping["canonical_request_ref"],
+        expires_at=_aware(row._mapping["expires_at"]),  # type: ignore[arg-type]
+        decided_by=row._mapping["decided_by"],
+        decided_at=_aware(row._mapping["decided_at"]),
+        decision_reason=row._mapping["decision_reason"],
+        created_at=_aware(row._mapping["created_at"]),  # type: ignore[arg-type]
+        updated_at=_aware(row._mapping["updated_at"]),  # type: ignore[arg-type]
     )
 
 
 def _effect(row: Any) -> EffectLedgerRecord:
     return EffectLedgerRecord(
-        tenant_id=row["tenant_id"],
-        effect_id=row["effect_id"],
-        run_id=row["run_id"],
-        action_ref=row["action_ref"],
-        approval_id=row["approval_id"],
-        effect_key=row["effect_key"],
-        request_digest=row["request_digest"],
-        tool_name=row["tool_name"],
-        tool_version=row["tool_version"],
-        tool_spec_digest=row["tool_spec_digest"],
-        connector_name=row["connector_name"],
-        required_scopes=tuple(row["required_scopes"]),
-        canonical_target=row["canonical_target"],
-        canonical_payload_digest=row["canonical_payload_digest"],
-        state=EffectState(row["state"]),
-        version=row["version"],
-        executor_id=row["executor_id"],
-        execution_epoch=row["execution_epoch"],
-        executor_lease_expires_at=_aware(row["executor_lease_expires_at"]),
-        result_ref=row["result_ref"],
-        remote_operation_id=row["remote_operation_id"],
-        created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
-        updated_at=_aware(row["updated_at"]),  # type: ignore[arg-type]
-        completed_at=_aware(row["completed_at"]),
+        tenant_id=row._mapping["tenant_id"],
+        effect_id=row._mapping["effect_id"],
+        run_id=row._mapping["run_id"],
+        action_ref=row._mapping["action_ref"],
+        approval_id=row._mapping["approval_id"],
+        effect_key=row._mapping["effect_key"],
+        request_digest=row._mapping["request_digest"],
+        tool_name=row._mapping["tool_name"],
+        tool_version=row._mapping["tool_version"],
+        tool_spec_digest=row._mapping["tool_spec_digest"],
+        connector_name=row._mapping["connector_name"],
+        required_scopes=tuple(row._mapping["required_scopes"]),
+        canonical_target=row._mapping["canonical_target"],
+        canonical_payload_digest=row._mapping["canonical_payload_digest"],
+        state=EffectState(row._mapping["state"]),
+        version=row._mapping["version"],
+        executor_id=row._mapping["executor_id"],
+        execution_epoch=row._mapping["execution_epoch"],
+        executor_lease_expires_at=_aware(row._mapping["executor_lease_expires_at"]),
+        result_ref=row._mapping["result_ref"],
+        remote_operation_id=row._mapping["remote_operation_id"],
+        created_at=_aware(row._mapping["created_at"]),  # type: ignore[arg-type]
+        updated_at=_aware(row._mapping["updated_at"]),  # type: ignore[arg-type]
+        completed_at=_aware(row._mapping["completed_at"]),
     )
 
 
 def _followup_request(row: Any) -> FollowupRequestRecord:
     return FollowupRequestRecord(
-        tenant_id=row["tenant_id"],
-        followup_id=row["followup_id"],
-        run_id=row["run_id"],
-        question=row["question"],
-        client_followup_id=row["client_followup_id"],
-        status=row["status"],
-        answer=row["answer"],
-        version=row["version"],
-        created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
-        answered_at=_aware(row["answered_at"]),
+        tenant_id=row._mapping["tenant_id"],
+        followup_id=row._mapping["followup_id"],
+        run_id=row._mapping["run_id"],
+        question=row._mapping["question"],
+        client_followup_id=row._mapping["client_followup_id"],
+        status=row._mapping["status"],
+        answer=row._mapping["answer"],
+        version=row._mapping["version"],
+        created_at=_aware(row._mapping["created_at"]),  # type: ignore[arg-type]
+        answered_at=_aware(row._mapping["answered_at"]),
     )
 
 
 def _inbox_message(row: Any) -> InboxMessageRecord:
     return InboxMessageRecord(
-        tenant_id=row["tenant_id"],
-        message_id=row["message_id"],
-        handler_version=row["handler_version"],
-        topic=row["topic"],
-        payload_schema=row["payload_schema"],
-        payload_digest=row["payload_digest"],
-        processing_state=row["processing_state"],
-        version=row["version"],
-        received_at=_aware(row["received_at"]),  # type: ignore[arg-type]
-        processed_at=_aware(row["processed_at"]),
-        failure_code=row["failure_code"],
+        tenant_id=row._mapping["tenant_id"],
+        message_id=row._mapping["message_id"],
+        handler_version=row._mapping["handler_version"],
+        topic=row._mapping["topic"],
+        payload_schema=row._mapping["payload_schema"],
+        payload_digest=row._mapping["payload_digest"],
+        processing_state=row._mapping["processing_state"],
+        version=row._mapping["version"],
+        received_at=_aware(row._mapping["received_at"]),  # type: ignore[arg-type]
+        processed_at=_aware(row._mapping["processed_at"]),
+        failure_code=row._mapping["failure_code"],
     )
 
 
 def _idempotency(row: Any) -> IdempotencyRecord:
-    payload = row["result_payload"]
+    payload = row._mapping["result_payload"]
     return IdempotencyRecord(
-        tenant_id=row["tenant_id"],
-        namespace=row["command_type"],
-        idempotency_key=row["idempotency_key"],
-        request_digest=row["request_digest"],
-        actor_id=row["actor_id"],
-        status=row["state"],
-        result_type=row["result_type"],
-        result_id=row["result_ref"],
-        result_schema=row["result_schema"],
+        tenant_id=row._mapping["tenant_id"],
+        namespace=row._mapping["command_type"],
+        idempotency_key=row._mapping["idempotency_key"],
+        request_digest=row._mapping["request_digest"],
+        actor_id=row._mapping["actor_id"],
+        status=row._mapping["state"],
+        result_type=row._mapping["result_type"],
+        result_id=row._mapping["result_ref"],
+        result_schema=row._mapping["result_schema"],
         result_payload=None if payload is None else _canonical_json(payload),
-        version=row["version"],
-        created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
-        updated_at=_aware(row["updated_at"]),  # type: ignore[arg-type]
+        version=row._mapping["version"],
+        created_at=_aware(row._mapping["created_at"]),  # type: ignore[arg-type]
+        updated_at=_aware(row._mapping["updated_at"]),  # type: ignore[arg-type]
     )
 
 
 def _outbox(row: Any) -> OutboxMessageRecord:
     return OutboxMessageRecord(
-        tenant_id=row["tenant_id"],
-        message_id=row["message_id"],
-        run_id=row["run_id"],
-        topic=row["topic"],
-        payload=_canonical_json(row["payload"]),
-        event_id=row["event_id"],
-        aggregate_version=row["aggregate_version"],
-        created_at=_aware(row["created_at"]),  # type: ignore[arg-type]
-        published_at=_aware(row["published_at"]),
-        publish_state=row["publish_state"],
-        version=row["version"],
-        delivery_attempts=row["delivery_attempts"],
-        next_attempt_at=_aware(row["next_attempt_at"]),
-        last_error=row["last_error"],
-        last_error_code=row["last_error_code"],
+        tenant_id=row._mapping["tenant_id"],
+        message_id=row._mapping["message_id"],
+        run_id=row._mapping["run_id"],
+        topic=row._mapping["topic"],
+        payload=_canonical_json(row._mapping["payload"]),
+        event_id=row._mapping["event_id"],
+        aggregate_version=row._mapping["aggregate_version"],
+        created_at=_aware(row._mapping["created_at"]),  # type: ignore[arg-type]
+        published_at=_aware(row._mapping["published_at"]),
+        publish_state=row._mapping["publish_state"],
+        version=row._mapping["version"],
+        delivery_attempts=row._mapping["delivery_attempts"],
+        next_attempt_at=_aware(row._mapping["next_attempt_at"]),
+        last_error=row._mapping["last_error"],
+        last_error_code=row._mapping["last_error_code"],
     )
 
 
 def _audit(row: Any) -> AuditEventRecord:
     return AuditEventRecord(
-        tenant_id=row["tenant_id"],
-        audit_event_id=row["audit_id"],
-        run_id=row["run_id"],
-        actor_id=row["actor_id"],
-        action=row["action"],
-        entity_type=row["entity_type"],
-        entity_id=row["entity_id"],
-        entity_version=row["entity_version"],
-        outcome=row["outcome"],
-        trace_id=row["trace_id"],
-        details=_canonical_json(row["detail"]),
-        created_at=_aware(row["occurred_at"]),  # type: ignore[arg-type]
+        tenant_id=row._mapping["tenant_id"],
+        audit_event_id=row._mapping["audit_id"],
+        run_id=row._mapping["run_id"],
+        actor_id=row._mapping["actor_id"],
+        action=row._mapping["action"],
+        entity_type=row._mapping["entity_type"],
+        entity_id=row._mapping["entity_id"],
+        entity_version=row._mapping["entity_version"],
+        outcome=row._mapping["outcome"],
+        trace_id=row._mapping["trace_id"],
+        details=_canonical_json(row._mapping["detail"]),
+        created_at=_aware(row._mapping["occurred_at"]),  # type: ignore[arg-type]
     )
 
 
@@ -558,7 +558,7 @@ class SqlAlchemyPlatformTransaction:
     async def _one(
         self, statement: Select[Any], entity: str, mapper: Callable[[Any], RecordT]
     ) -> RecordT:
-        row = (await self._session.execute(statement)).mappings().one_or_none()
+        row = (await self._session.execute(statement)).one_or_none()
         if row is None:
             raise _not_found(entity)
         return mapper(row)
@@ -566,7 +566,7 @@ class SqlAlchemyPlatformTransaction:
     async def _many(
         self, statement: Select[Any], mapper: Callable[[Any], RecordT]
     ) -> tuple[RecordT, ...]:
-        rows = (await self._session.execute(statement)).mappings().all()
+        rows = (await self._session.execute(statement)).all()
         return tuple(mapper(row) for row in rows)
 
     async def lock_run(self, tenant_id: str, run_id: str) -> RunRecord:
@@ -710,7 +710,7 @@ class SqlAlchemyPlatformTransaction:
                     ui_surface_table.c.surface_id == surface_id,
                 )
             )
-        ).mappings().one_or_none()
+        ).one_or_none()
         return None if row is None else _ui_surface(row)
 
     async def get_ui_surface_revision(
@@ -768,7 +768,7 @@ class SqlAlchemyPlatformTransaction:
                     effect_ledger_table.c.effect_key == effect_key,
                 )
             )
-        ).mappings().one_or_none()
+        ).one_or_none()
         return None if row is None else _effect(row)
 
     async def get_outbox_message(self, tenant_id: str, message_id: str) -> OutboxMessageRecord:
@@ -942,15 +942,15 @@ class SqlAlchemyPlatformTransaction:
                     execution_unit_table.c.execution_unit_id,
                 )
             )
-        ).mappings().all()
+        ).all()
         candidates: list[SchedulableWork] = []
         for row in rows:
             candidates.append(
                 SchedulableWork(
-                    run=await self.get_run(row["tenant_id"], row["run_id"]),
-                    unit=await self.get_execution_unit(row["tenant_id"], row["execution_unit_id"]),
+                    run=await self.get_run(row._mapping["tenant_id"], row._mapping["run_id"]),
+                    unit=await self.get_execution_unit(row._mapping["tenant_id"], row._mapping["execution_unit_id"]),
                     checkpoint=await self.get_checkpoint(
-                        row["tenant_id"], row["current_checkpoint_id"]
+                        row._mapping["tenant_id"], row._mapping["current_checkpoint_id"]
                     ),
                 )
             )
@@ -1004,7 +1004,7 @@ class SqlAlchemyPlatformTransaction:
                     idempotency_record_table.c.idempotency_key == idempotency_key,
                 )
             )
-        ).mappings().one()
+        ).one()
         record = _idempotency(row)
         if inserted is not None:
             return None
@@ -1051,7 +1051,7 @@ class SqlAlchemyPlatformTransaction:
             )
             .returning(*idempotency_record_table.c)
         )
-        row = (await self._session.execute(statement)).mappings().one_or_none()
+        row = (await self._session.execute(statement)).one_or_none()
         if row is None:
             raise PlatformError("INTEGRITY_VIOLATION", "idempotency claim is missing or complete")
         return _idempotency(row)
@@ -1598,6 +1598,7 @@ class SqlAlchemyPlatformTransaction:
             record.tenant_id,
             values,
             expected_version,
+            "followup request",
         )
 
     async def replace_effect_cas(self, record: EffectLedgerRecord, expected_version: int) -> None:

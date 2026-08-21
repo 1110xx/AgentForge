@@ -56,6 +56,25 @@ class UiSurfaceCommittedPayload(StrictModel):
     revision: Annotated[int, Field(ge=1)]
 
 
+class ArtifactVersionPayload(StrictModel):
+    kind: Literal["artifact.version"]
+    artifact_id: str
+    run_id: str
+    logical_name: str
+    classification: str
+    version: Annotated[int, Field(ge=1)]
+    state: str
+
+
+class ActionProposalPayload(StrictModel):
+    kind: Literal["action.proposal"]
+    action_ref: str
+    run_id: str
+    attempt_id: str
+    proposal_state: str
+    risk_class: str
+
+
 EventPayload = Annotated[
     RunCreatedPayload
     | RunStatusChangedPayload
@@ -63,7 +82,9 @@ EventPayload = Annotated[
     | ToolInvocationRecordedPayload
     | ApprovalDecidedPayload
     | EffectStatusChangedPayload
-    | UiSurfaceCommittedPayload,
+    | UiSurfaceCommittedPayload
+    | ArtifactVersionPayload
+    | ActionProposalPayload,
     Field(discriminator="kind"),
 ]
 
@@ -78,6 +99,8 @@ EVENT_PAYLOAD_CONTRACTS: dict[EventType, tuple[type[StrictModel], str]] = {
     EventType.APPROVAL_DECIDED: (ApprovalDecidedPayload, "approval/v1"),
     EventType.EFFECT_STATUS_CHANGED: (EffectStatusChangedPayload, "effect/v1"),
     EventType.UI_SURFACE_COMMITTED: (UiSurfaceCommittedPayload, "a2ui-surface/v0.9.1"),
+    EventType.ARTIFACT_VERSION: (ArtifactVersionPayload, "artifact-version/v1"),
+    EventType.ACTION_PROPOSAL: (ActionProposalPayload, "action-proposal/v1"),
 }
 
 

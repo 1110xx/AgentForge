@@ -12,9 +12,12 @@ Drives the REAL SubprocessOrchestrator op handlers (no pipe, no live scheduler):
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
+import os
 import sys
 from dataclasses import replace
+from uuid import uuid4
 
 sys.path.insert(0, "src")
 
@@ -42,7 +45,34 @@ from enterprise_agent_platform.execution.subprocess_orchestrator import (
 from enterprise_agent_platform.execution.runtime import _AGENT_STATE_SCHEMA_VERSION
 from enterprise_agent_platform.persistence import InMemoryPlatformStore
 
-TENANT = "demo"
+
+async def _make_store(name: str):
+    """Build the store backend: memory | sqlite (L1) | pg (AGENT_PLATFORM_DATABASE_URL)."""
+    if name == "memory":
+        return InMemoryPlatformStore()
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from enterprise_agent_platform.persistence.database import (
+        create_schema,
+        create_sqlite_l1_engine,
+    )
+    from enterprise_agent_platform.persistence.sqlalchemy_store import (
+        SqlAlchemyPlatformStore,
+    )
+
+    if name == "sqlite":
+        engine = create_sqlite_l1_engine()
+    else:
+        url = os.environ.get("AGENT_PLATFORM_DATABASE_URL", "").strip()
+        if not url:
+            raise SystemExit("AGENT_PLATFORM_DATABASE_URL required for --store pg")
+        engine = create_async_engine(url, pool_pre_ping=True)
+    await create_schema(engine)
+    return SqlAlchemyPlatformStore(
+        async_sessionmaker(engine, expire_on_commit=False)
+    )
+
+TENANT = "demo-memory"
 
 AGENT_STATE = {
     "system_prompt": "## Task Intent\n\nAnalyze demo",
@@ -102,8 +132,11 @@ def _runtime_context(reservation_owner_context: dict) -> dict:
     return reservation_owner_context
 
 
-async def main() -> None:
-    store = InMemoryPlatformStore()
+async def main(store_name: str) -> None:
+    global TENANT
+    run_key = uuid4().hex[:8]  # fresh run per invocation (idempotency digests embed run_id)
+    TENANT = f"demo-{store_name}-{run_key}"  # fully isolated tenant per invocation
+    store = await _make_store(store_name)
     control = ControlPlaneService(store)
     orchestrator = SubprocessOrchestrator(
         store=store,
@@ -123,7 +156,7 @@ async def main() -> None:
             parameters={},
             host_context_ref=None,
         ),
-        idempotency_key="verify:create-run",
+        idempotency_key=f"verify:create-run:{store_name}:{run_key}",
     )
     unit = await store.get_primary_unit(ctx.tenant_id, run.run_id)
     initial = await store.get_checkpoint(ctx.tenant_id, unit.current_checkpoint_id)
@@ -132,14 +165,15 @@ async def main() -> None:
     print(f"[1] run created; initial checkpoint agent_state={initial.agent_state}")
 
     # ── 2. Bootstrap (attempt CLAIMED, unit EXECUTING, run RUNNING) ──
-    reservation, lease = await _bootstrap(store, control, ctx, run.run_id, unit, "verify:t-run")
+    transition_key = f"verify:t-run:{store_name}:{run_key}"
+    reservation, lease = await _bootstrap(store, control, ctx, run.run_id, unit, transition_key)
     context_kwargs = {
         "attempt_id": reservation.attempt.attempt_id,
         "generation": reservation.attempt.generation,
         "lease_owner": "verify:owner",
         "lease_version": lease.version,
     }
-    ticket = await _make_ticket(store, reservation, unit, "verify:t-run")
+    ticket = await _make_ticket(store, reservation, unit, transition_key)
     print(
         f"[2] bootstrapped attempt={reservation.attempt.attempt_id} "
         f"lease_version={lease.version} status={reservation.attempt.status.value}"
@@ -205,7 +239,7 @@ async def main() -> None:
                 question="Why did the summary omit case 3?",
                 client_followup_id="followup-cp-1",
             ),
-            idempotency_key="followup-cp-1",
+            idempotency_key=f"followup-cp-1:{store_name}:{run_key}",
         )
     )
     # Wait until the Run has been reactivated by queue_followup.
@@ -220,9 +254,21 @@ async def main() -> None:
     print(f"[5] followup queued: run={current.status.value} pending={pending[0].followup_id}")
 
     # ── 6. Scheduler claims the new Attempt ──
+    #    FairScheduler is tenant-round-robin (production semantics); on shared
+    #    persistent stores it may first claim leftovers from previous runs, so we
+    #    loop until we claim *our* RECOVERING run (isolated backends match on the
+    #    first claim; assertions below apply to the claimed ticket regardless).
     scheduler = FairScheduler(store, control)
-    ticket_fu = await scheduler.claim_ready_work("verify-worker-fu")
-    assert ticket_fu is not None and ticket_fu.generation == reservation.attempt.generation + 1
+    ticket_fu = None
+    for _ in range(25):
+        candidate = await scheduler.claim_ready_work("verify-worker-fu")
+        if candidate is None:
+            break
+        if candidate.run_id == run.run_id:
+            ticket_fu = candidate
+            break
+    assert ticket_fu is not None, "scheduler never claimed the follow-up run"
+    assert ticket_fu.generation == reservation.attempt.generation + 1
     assert ticket_fu.source_checkpoint_id == checkpoint_2.checkpoint_id
     print(
         f"[6] follow-up attempt claimed: gen={ticket_fu.generation} "
@@ -304,5 +350,11 @@ async def _make_ticket(store, reservation, unit, key):
     )
 
 
+PASS_LINE = "PASS"
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(description="verify checkpoint+followup chain")
+    parser.add_argument("--store", choices=("memory", "sqlite", "pg"), default="memory",
+                        help="store backend: memory | sqlite L1 | pg (AGENT_PLATFORM_DATABASE_URL)")
+    args = parser.parse_args()
+    asyncio.run(main(args.store))

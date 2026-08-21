@@ -151,6 +151,8 @@ class EventType(StringEnum):
     APPROVAL_DECIDED = "approval.decided"
     EFFECT_STATUS_CHANGED = "effect.status.changed"
     UI_SURFACE_COMMITTED = "ui.surface.committed"
+    ARTIFACT_VERSION = "artifact.version"
+    ACTION_PROPOSAL = "action.proposal"
 
 
 class EntityType(StringEnum):

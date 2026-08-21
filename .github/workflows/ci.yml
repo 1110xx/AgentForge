@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  l1-unit-and-backend-verification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+
+      - name: Sync locked deps
+        run: uv sync --all-groups
+
+      - name: L1 unit tests
+        run: uv run pytest tests/ -q
+        # L2/L3 tests gate themselves off via AGENT_PLATFORM_L2_* env,
+        # so this stays green without external Postgres/NATS/MinIO/kind.
+
+      - name: E2E — checkpoint + follow-up chain (SQLAlchemy sqlite L1)
+        run: uv run python verify_checkpoint_followup_chain.py --store sqlite
+
+      - name: E2E — checkpoint + follow-up chain (in-memory)
+        run: uv run python verify_checkpoint_followup_chain.py --store memory
+
+      - name: E2E — artifact/action events (SQLAlchemy sqlite L1)
+        run: uv run python verify_artifact_action_events.py --store sqlite
+
+      - name: E2E — artifact/action events (in-memory)
+        run: uv run python verify_artifact_action_events.py --store memory

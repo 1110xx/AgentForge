@@ -152,8 +152,24 @@ def main() -> None:
     factory = ProviderFactory(config)
     run_sessions = factory.create_primary()
 
-    # In-memory store + control plane
-    store = InMemoryPlatformStore()
+    # Store selection: PostgreSQL (SQLAlchemy) when AGENT_PLATFORM_DATABASE_URL is
+    # set — the docker-compose stack provides it (postgres:5432); otherwise the
+    # in-memory store keeps the local demo portable.
+    database_url = os.environ.get("AGENT_PLATFORM_DATABASE_URL", "").strip()
+    if database_url:
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        from enterprise_agent_platform.persistence.sqlalchemy_store import (
+            SqlAlchemyPlatformStore,
+        )
+
+        _engine = create_async_engine(database_url)
+        store = SqlAlchemyPlatformStore(
+            async_sessionmaker(_engine, expire_on_commit=False)
+        )
+        logger.info("using PostgreSQL store (AGENT_PLATFORM_DATABASE_URL)")
+    else:
+        store = InMemoryPlatformStore()
     control = ControlPlaneService(store)
 
     # Followup service: terminal Runs are re-scheduled as new Attempts,
