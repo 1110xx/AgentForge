@@ -47,7 +47,6 @@ from enterprise_agent_platform.integration.host import (
     ResolvedResource,
     VerifiedHostContext,
 )
-from enterprise_agent_platform.persistence import InMemoryPlatformStore
 from enterprise_agent_platform.platform.config_reader import ConfigReader
 from enterprise_agent_platform.platform.provider_factory import ProviderFactory
 from enterprise_agent_platform.platform.relay import RelayServices, create_relay_from_env
@@ -153,23 +152,44 @@ def main() -> None:
     run_sessions = factory.create_primary()
 
     # Store selection: PostgreSQL (SQLAlchemy) when AGENT_PLATFORM_DATABASE_URL is
-    # set — the docker-compose stack provides it (postgres:5432); otherwise the
-    # in-memory store keeps the local demo portable.
+    # set — the docker-compose stack provides it (postgres:5432, alembic-migrated
+    # by the compose `migrate` service). Otherwise the platform defaults to a
+    # DURABLE SQLite file so local data survives restarts — no more silent
+    # in-memory-only store (SDD §13.2 / Phase 3.5-B).
     database_url = os.environ.get("AGENT_PLATFORM_DATABASE_URL", "").strip()
-    if database_url:
-        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-        from enterprise_agent_platform.persistence.sqlalchemy_store import (
-            SqlAlchemyPlatformStore,
+    sqlite_managed = False
+    if not database_url:
+        database_url = "sqlite+aiosqlite:///./agent-platform.db"
+        sqlite_managed = True
+        logger.info(
+            "no AGENT_PLATFORM_DATABASE_URL — defaulting to durable SQLite "
+            "(agent-platform.db)"
         )
+    if database_url.startswith("sqlite"):
+        from enterprise_agent_platform.persistence.database import (
+            create_sqlite_engine,
+        )
+
+        _engine = create_sqlite_engine(
+            database_url.split("///", 1)[1] if "///" in database_url else ":memory:"
+        )
+    else:
+        from sqlalchemy.ext.asyncio import create_async_engine
 
         _engine = create_async_engine(database_url)
-        store = SqlAlchemyPlatformStore(
-            async_sessionmaker(_engine, expire_on_commit=False)
-        )
-        logger.info("using PostgreSQL store (AGENT_PLATFORM_DATABASE_URL)")
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from enterprise_agent_platform.persistence.sqlalchemy_store import (
+        SqlAlchemyPlatformStore,
+    )
+
+    store = SqlAlchemyPlatformStore(
+        async_sessionmaker(_engine, expire_on_commit=False)
+    )
+    if database_url.startswith("sqlite"):
+        logger.info("using SQLite store (%s)", database_url)
     else:
-        store = InMemoryPlatformStore()
+        logger.info("using PostgreSQL store (AGENT_PLATFORM_DATABASE_URL)")
     control = ControlPlaneService(store)
 
     # Followup service: terminal Runs are re-scheduled as new Attempts,
@@ -253,6 +273,11 @@ def main() -> None:
 
     async def startup() -> None:
         """Start scheduler loop and server."""
+        if sqlite_managed:
+            from enterprise_agent_platform.persistence.database import create_schema
+
+            await create_schema(_engine)
+            logger.info("SQLite default schema ensured (agent-platform.db)")
         scheduler_task = asyncio.create_task(scheduler.run_loop())
         logger.info("Scheduler background loop started")
 

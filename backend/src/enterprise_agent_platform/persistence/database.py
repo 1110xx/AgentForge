@@ -27,13 +27,7 @@ def create_platform_engine(
     )
 
 
-def create_sqlite_l1_engine() -> AsyncEngine:
-    """Create a single-connection in-memory SQLite engine for L1 adapter tests."""
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        poolclass=StaticPool,
-    )
-
+def _attach_foreign_keys(engine: AsyncEngine) -> None:
     @event.listens_for(engine.sync_engine, "connect")
     def _enable_foreign_keys(dbapi_connection: object, _connection_record: object) -> None:
         cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
@@ -42,7 +36,29 @@ def create_sqlite_l1_engine() -> AsyncEngine:
         finally:
             cursor.close()
 
+
+def create_sqlite_engine(path: str = ":memory:") -> AsyncEngine:
+    """Create a SQLite engine with foreign-key enforcement.
+
+    ``path=":memory:"`` builds the single-connection L1 engine; any other value
+    (e.g. ``./agent-platform.db``) is treated as a durable file database — the
+    local default the platform falls back to when no database URL is configured
+    (SDD Phase 3.5-B).
+    """
+    if path == ":memory:":
+        engine = create_async_engine(
+            "sqlite+aiosqlite:///:memory:",
+            poolclass=StaticPool,
+        )
+    else:
+        engine = create_async_engine(f"sqlite+aiosqlite:///{path}")
+    _attach_foreign_keys(engine)
     return engine
+
+
+def create_sqlite_l1_engine() -> AsyncEngine:
+    """Single-connection in-memory SQLite engine for L1 adapter tests."""
+    return create_sqlite_engine(":memory:")
 
 
 async def create_schema(engine: AsyncEngine) -> None:

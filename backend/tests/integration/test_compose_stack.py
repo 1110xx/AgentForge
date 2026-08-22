@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
@@ -200,12 +201,17 @@ def test_reference_vertical_on_postgres() -> None:
             store = SqlAlchemyPlatformStore(
                 async_sessionmaker(engine, expire_on_commit=False)
             )
-            harness = ReferenceWorkflowHarness(store=store)
+            # Re-runnable on the same durable store: instance-unique seed so
+            # idempotency keys never collide across repeated runs.
+            seed = uuid4().hex[:8]
+            harness = ReferenceWorkflowHarness(
+                store=store, idempotency_seed=seed
+            )
             paused = await harness.run_to_approval()
             completed = await harness.approve_and_complete(
                 paused,
                 actor_id="l2-reviewer",
-                client_action_id="l2-approve-1",
+                client_action_id=f"l2-approve-{seed}",
             )
             assert completed.run.status is RunState.SUCCEEDED
             assert completed.effect.state is EffectState.SUCCEEDED
@@ -251,6 +257,14 @@ def test_reference_vertical_on_postgres() -> None:
             await engine.dispose()
 
     _run(scenario())
+
+
+def test_reference_vertical_on_postgres__idempotent_key_format() -> None:
+    """The harness's instance seed keeps shared-store runs collision-free."""
+    harness_a = ReferenceWorkflowHarness(idempotency_seed="seed-a")
+    harness_b = ReferenceWorkflowHarness(idempotency_seed="seed-b")
+    assert harness_a._idempotency_seed == "seed-a"
+    assert harness_b._idempotency_seed != harness_a._idempotency_seed
 
 
 def test_nats_reachable() -> None:
@@ -323,10 +337,14 @@ def test_nats_outbox_relay_to_inbox_round_trip() -> None:
                 await bus.publish(envelope)
 
                 # ── consumer side: pull + transactional Inbox dedup ──
+                # deliver_policy="last": this one-shot consumer starts at the
+                # most recently published message, so it never replays historic
+                # rows left on the shared durable stream by earlier gate runs.
                 delivery = await bus.pull(
                     "agent.dispatch.requested",
                     consumer=f"l2-gate-{uuid4().hex}",
                     timeout=10.0,
+                    deliver_policy="last",
                 )
                 assert delivery is not None, "message must arrive from JetStream"
                 assert delivery.envelope.message_id == envelope.message_id

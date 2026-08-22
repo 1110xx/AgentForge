@@ -214,7 +214,12 @@ class MessageDelivery:
 class MessageBus(Protocol):
     async def publish(self, envelope: MessageEnvelope) -> None: ...
     async def pull(
-        self, topic: str, *, consumer: str, timeout: float
+        self,
+        topic: str,
+        *,
+        consumer: str,
+        timeout: float,
+        deliver_policy: str = "all",
     ) -> MessageDelivery | None: ...
     async def close(self) -> None: ...
 
@@ -249,8 +254,15 @@ class InMemoryMessageBus:
                 raise RuntimeError("message bus is closed")
             return self._messages[topic].popleft()
 
-    async def pull(self, topic: str, *, consumer: str, timeout: float) -> MessageDelivery | None:
-        del consumer
+    async def pull(
+        self,
+        topic: str,
+        *,
+        consumer: str,
+        timeout: float,
+        deliver_policy: str = "all",
+    ) -> MessageDelivery | None:
+        del consumer, deliver_policy
         if timeout <= 0:
             raise ValueError("pull timeout must be positive")
         try:
@@ -353,19 +365,40 @@ class NatsJetStreamBus:
             headers={"Nats-Msg-Id": envelope.message_id},
         )
 
-    async def pull(self, topic: str, *, consumer: str, timeout: float) -> MessageDelivery | None:
+    async def pull(
+        self,
+        topic: str,
+        *,
+        consumer: str,
+        timeout: float,
+        deliver_policy: str = "all",
+    ) -> MessageDelivery | None:
         if timeout <= 0:
             raise ValueError("pull timeout must be positive")
         _required_identifier("consumer", consumer)
+        if deliver_policy not in {"all", "last"}:
+            raise ValueError("deliver_policy must be 'all' or 'last'")
         jetstream = await self._ensure_connected()
         key = (topic, consumer)
         subscription = self._subscriptions.get(key)
         if subscription is None:
-            subscription = await jetstream.pull_subscribe(
-                topic,
-                durable=consumer,
-                stream=self._stream,
-            )
+            # "all" (default): relay semantics — replay the whole stream from
+            # the durable consumer cursor on first creation (historic outbox
+            # rows included). "last": one-shot verification consumers that must
+            # see only the most recently published message, not historic rows
+            # left on a shared durable stream by earlier runs.
+            pull_kwargs: dict[str, object] = {
+                "subject": topic,
+                "durable": consumer,
+                "stream": self._stream,
+            }
+            if deliver_policy == "last":
+                from nats.js.api import ConsumerConfig, DeliverPolicy
+
+                pull_kwargs["config"] = ConsumerConfig(
+                    deliver_policy=DeliverPolicy.LAST
+                )
+            subscription = await jetstream.pull_subscribe(**pull_kwargs)
             self._subscriptions[key] = subscription
         try:
             messages = await subscription.fetch(1, timeout=timeout)

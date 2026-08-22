@@ -27,3 +27,7 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.egg-info/
+# Local default store (SDD Phase 3.5-B): run.py creates a durable SQLite file
+# when no AGENT_PLATFORM_DATABASE_URL is configured.
+backend/agent-platform.db
+*.db

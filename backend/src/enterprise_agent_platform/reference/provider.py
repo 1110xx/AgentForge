@@ -658,8 +658,13 @@ class ReferenceWorkflowHarness:
         *,
         connector_failure_mode: FailureMode = "none",
         store: PlatformStore | None = None,
+        idempotency_seed: str = "",
     ) -> None:
+        """idempotency_seed: instance-unique prefix so the same durable store can
+        be re-run across tests (fixed sequence ids would collide with
+        IDEMPOTENCY_KEY_REUSED on a shared PostgreSQL database)."""
         self.clock = MutableClock()
+        self._idempotency_seed = idempotency_seed
         self.store = (
             store if store is not None else InMemoryPlatformStore(clock=self.clock)
         )
@@ -734,7 +739,7 @@ class ReferenceWorkflowHarness:
                 parameters={"analysis_mode": "failure-pattern", "max_items": 100},
                 host_context_ref="host-context:reference",
             ),
-            idempotency_key=f"reference-create-{self._run_index}",
+            idempotency_key=f"reference-create-{self._idempotency_seed}{self._run_index}",
         )
         unit = await self.store.get_primary_unit(self.tenant_id, run.run_id)
         checkpoint = await self.store.get_checkpoint(
@@ -745,7 +750,7 @@ class ReferenceWorkflowHarness:
             unit.execution_unit_id,
             checkpoint.checkpoint_id,
             unit.version,
-            transition_key=f"reference-reserve-{self._run_index}",
+            transition_key=f"reference-reserve-{self._idempotency_seed}{self._run_index}",
         )
         lease = await self.control.activate_lease(
             context,
