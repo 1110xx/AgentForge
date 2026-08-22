@@ -142,6 +142,33 @@ class FollowupCommand(StrictModel):
     client_followup_id: str
 
 
+class ChatCommand(StrictModel):
+    """Free-form conversation entry (Phase 3.6 frontend launcher).
+
+    The message is parsed into an IntentPlan (control/chat.py) and the Run is
+    created through the same CreateRunCommand semantics; follow-up questions
+    continue through the existing followup chain.
+    """
+
+    message: Annotated[str, Field(min_length=1, max_length=2000)]
+    # Default aligns with the reference resource resolver (synthetic-case:
+    # prefix); production hosts provide their own resolver and may override.
+    resource_refs: Annotated[tuple[str, ...], Field(min_length=1)] = (
+        "synthetic-case:demo",
+    )
+    # Explicit workflow escape hatch: when set it is used verbatim as the
+    # workflow_type (still validated against WORKFLOW_PARAMETER_MODELS via the
+    # assembled CreateRunCommand). When omitted, classify_intent picks one.
+    workflow_hint: str | None = None
+    host_context_ref: str | None = None
+
+    @model_validator(mode="after")
+    def reject_blank_message(self) -> "ChatCommand":
+        if not self.message.strip():
+            raise ValueError("message cannot be blank")
+        return self
+
+
 class EffectGrantRequest(StrictModel):
     """Server-side request to authorise and dispatch one prepared Effect.
 

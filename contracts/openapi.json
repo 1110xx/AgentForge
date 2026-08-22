@@ -1,6 +1,46 @@
 {
   "components": {
     "schemas": {
+      "ActionProposalPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "action_ref": {
+            "title": "Action Ref",
+            "type": "string"
+          },
+          "attempt_id": {
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "action.proposal",
+            "title": "Kind",
+            "type": "string"
+          },
+          "proposal_state": {
+            "title": "Proposal State",
+            "type": "string"
+          },
+          "risk_class": {
+            "title": "Risk Class",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "action_ref",
+          "run_id",
+          "attempt_id",
+          "proposal_state",
+          "risk_class"
+        ],
+        "title": "ActionProposalPayload",
+        "type": "object"
+      },
       "ApiErrorEnvelope": {
         "additionalProperties": false,
         "properties": {
@@ -9,9 +49,7 @@
             "type": "string"
           },
           "details": {
-            "additionalProperties": {
-              "type": "string"
-            },
+            "additionalProperties": true,
             "title": "Details",
             "type": "object"
           },
@@ -180,6 +218,87 @@
         "title": "ArtifactSummary",
         "type": "object"
       },
+      "ArtifactVersionPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "title": "Artifact Id",
+            "type": "string"
+          },
+          "classification": {
+            "title": "Classification",
+            "type": "string"
+          },
+          "kind": {
+            "const": "artifact.version",
+            "title": "Kind",
+            "type": "string"
+          },
+          "logical_name": {
+            "title": "Logical Name",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "artifact_id",
+          "run_id",
+          "logical_name",
+          "classification",
+          "version",
+          "state"
+        ],
+        "title": "ArtifactVersionPayload",
+        "type": "object"
+      },
+      "AttemptHistoryPage": {
+        "additionalProperties": false,
+        "description": "Full Attempt history for a Run (SDD §10.1 — GET /v1/runs/{id}/attempts).",
+        "properties": {
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/AttemptSummary"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "attempt-history-page/v1",
+            "default": "attempt-history-page/v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "total_count": {
+            "minimum": 0.0,
+            "title": "Total Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_id",
+          "total_count",
+          "records"
+        ],
+        "title": "AttemptHistoryPage",
+        "type": "object"
+      },
       "AttemptLifecyclePayload": {
         "additionalProperties": false,
         "properties": {
@@ -287,6 +406,90 @@
         "title": "AttemptSummary",
         "type": "object"
       },
+      "BootstrapRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 1.0,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "pod_uid": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Pod Uid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pod_uid",
+          "attempt_id",
+          "generation"
+        ],
+        "title": "BootstrapRequest",
+        "type": "object"
+      },
+      "BootstrapResponseModel": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "execution_unit_id": {
+            "title": "Execution Unit Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "default": "",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 1.0,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "lease_owner": {
+            "default": "",
+            "title": "Lease Owner",
+            "type": "string"
+          },
+          "lease_version": {
+            "default": 0,
+            "title": "Lease Version",
+            "type": "integer"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "runtime_token": {
+            "title": "Runtime Token",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runtime_token",
+          "tenant_id",
+          "run_id",
+          "execution_unit_id",
+          "attempt_id",
+          "generation"
+        ],
+        "title": "BootstrapResponseModel",
+        "type": "object"
+      },
       "CancelRunRequest": {
         "additionalProperties": false,
         "properties": {
@@ -304,6 +507,56 @@
           }
         },
         "title": "CancelRunRequest",
+        "type": "object"
+      },
+      "ChatCommand": {
+        "additionalProperties": false,
+        "description": "Free-form conversation entry (Phase 3.6 frontend launcher).\n\nThe message is parsed into an IntentPlan (control/chat.py) and the Run is\ncreated through the same CreateRunCommand semantics; follow-up questions\ncontinue through the existing followup chain.",
+        "properties": {
+          "host_context_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host Context Ref"
+          },
+          "message": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "resource_refs": {
+            "default": [
+              "synthetic-case:demo"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Resource Refs",
+            "type": "array"
+          },
+          "workflow_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Hint"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "ChatCommand",
         "type": "object"
       },
       "CreateRunCommand": {
@@ -350,6 +603,79 @@
           "resource_refs"
         ],
         "title": "CreateRunCommand",
+        "type": "object"
+      },
+      "EffectExecutionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "effect_id": {
+            "title": "Effect Id",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "effect_id",
+          "state",
+          "version"
+        ],
+        "title": "EffectExecutionResponse",
+        "type": "object"
+      },
+      "EffectReconciliationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_digest": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Evidence Digest",
+            "type": "string"
+          },
+          "evidence_ref": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Evidence Ref",
+            "type": "string"
+          },
+          "remote_operation_id": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remote Operation Id"
+          },
+          "result": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Result",
+            "type": "object"
+          },
+          "succeeded": {
+            "title": "Succeeded",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "succeeded",
+          "result",
+          "evidence_ref",
+          "evidence_digest"
+        ],
+        "title": "EffectReconciliationRequest",
         "type": "object"
       },
       "EffectState": {
@@ -432,7 +758,9 @@
           "payload": {
             "discriminator": {
               "mapping": {
+                "action.proposal": "#/components/schemas/ActionProposalPayload",
                 "approval.decided": "#/components/schemas/ApprovalDecidedPayload",
+                "artifact.version": "#/components/schemas/ArtifactVersionPayload",
                 "attempt.lifecycle": "#/components/schemas/AttemptLifecyclePayload",
                 "effect.status.changed": "#/components/schemas/EffectStatusChangedPayload",
                 "run.created": "#/components/schemas/RunCreatedPayload",
@@ -463,6 +791,12 @@
               },
               {
                 "$ref": "#/components/schemas/UiSurfaceCommittedPayload"
+              },
+              {
+                "$ref": "#/components/schemas/ArtifactVersionPayload"
+              },
+              {
+                "$ref": "#/components/schemas/ActionProposalPayload"
               }
             ],
             "title": "Payload"
@@ -523,7 +857,9 @@
           "tool.invocation.recorded",
           "approval.decided",
           "effect.status.changed",
-          "ui.surface.committed"
+          "ui.surface.committed",
+          "artifact.version",
+          "action.proposal"
         ],
         "title": "EventType",
         "type": "string"
@@ -570,6 +906,84 @@
           "version"
         ],
         "title": "ExecutionUnitSummary",
+        "type": "object"
+      },
+      "FinalCheckpointRequest": {
+        "additionalProperties": false,
+        "description": "Terminal checkpoint commit: runtime subject + lease facts + summary.\n\nExtends ``RestoreRequest`` so the Pod can keep signing its CAS writes with\nthe fresh lease facts (owner/version) — the shared commit handler reads\nthem from the ``context`` bundle. ``agent_state`` carries the terminal\nAgent snapshot (same ``pi-agent-core/v1`` schema as turn-level checkpoints)\n— the final Checkpoint is what a follow-up / rerun Attempt restores from,\nso dropping it would break history hydration across rounds.",
+        "properties": {
+          "agent_state": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Agent State",
+            "type": "object"
+          },
+          "agent_state_schema_version": {
+            "default": "pi-agent-core/v1",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Agent State Schema Version",
+            "type": "string"
+          },
+          "attempt_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "execution_unit_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Execution Unit Id",
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 1.0,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "lease_owner": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Lease Owner",
+            "type": "string"
+          },
+          "lease_version": {
+            "minimum": 1.0,
+            "title": "Lease Version",
+            "type": "integer"
+          },
+          "run_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "summary": {
+            "maxLength": 8192,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          },
+          "tenant_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "run_id",
+          "attempt_id",
+          "generation",
+          "execution_unit_id",
+          "lease_owner",
+          "lease_version",
+          "summary"
+        ],
+        "title": "FinalCheckpointRequest",
         "type": "object"
       },
       "FollowupAnswer": {
@@ -633,7 +1047,659 @@
         "title": "FollowupCommand",
         "type": "object"
       },
+      "FollowupHistoryPage": {
+        "additionalProperties": false,
+        "description": "Paginated followup history for a Run.",
+        "properties": {
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/FollowupRecord"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "followup-history-page/v1",
+            "default": "followup-history-page/v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "total_count": {
+            "minimum": 0.0,
+            "title": "Total Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_id",
+          "total_count",
+          "records"
+        ],
+        "title": "FollowupHistoryPage",
+        "type": "object"
+      },
+      "FollowupRecord": {
+        "additionalProperties": false,
+        "description": "One question/answer (or in-flight question) stored for a Run.\n\n``PENDING`` rows are durably queued for a fresh Attempt and have no answer\nyet; ``ANSWERED`` rows carry the persisted answer (SDD §6.4).",
+        "properties": {
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
+          "answered_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answered At"
+          },
+          "client_followup_id": {
+            "title": "Client Followup Id",
+            "type": "string"
+          },
+          "followup_seq": {
+            "minimum": 0.0,
+            "title": "Followup Seq",
+            "type": "integer"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "followup-record/v1",
+            "default": "followup-record/v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "status": {
+            "default": "ANSWERED",
+            "enum": [
+              "PENDING",
+              "ANSWERED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "followup_seq",
+          "question",
+          "client_followup_id"
+        ],
+        "title": "FollowupRecord",
+        "type": "object"
+      },
+      "HeartbeatRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "execution_unit_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Execution Unit Id",
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 1.0,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "lease_owner": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Lease Owner",
+            "type": "string"
+          },
+          "lease_version": {
+            "minimum": 1.0,
+            "title": "Lease Version",
+            "type": "integer"
+          },
+          "run_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "tenant_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "run_id",
+          "attempt_id",
+          "generation",
+          "execution_unit_id",
+          "lease_owner",
+          "lease_version"
+        ],
+        "title": "HeartbeatRequest",
+        "type": "object"
+      },
+      "HeartbeatResponse": {
+        "additionalProperties": false,
+        "description": "Refreshed RuntimeContext (the new lease_version is a CAS prerequisite).",
+        "properties": {
+          "attempt_id": {
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "lease_owner": {
+            "title": "Lease Owner",
+            "type": "string"
+          },
+          "lease_version": {
+            "minimum": 1.0,
+            "title": "Lease Version",
+            "type": "integer"
+          },
+          "pod_uid": {
+            "title": "Pod Uid",
+            "type": "string"
+          },
+          "runtime_token": {
+            "title": "Runtime Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "attempt_id",
+          "generation",
+          "pod_uid",
+          "runtime_token",
+          "lease_owner",
+          "lease_version"
+        ],
+        "title": "HeartbeatResponse",
+        "type": "object"
+      },
+      "InternalOperationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "result_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Ref"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "InternalOperationResult",
+        "type": "object"
+      },
       "JsonValue": {},
+      "ModelCallRequest": {
+        "additionalProperties": false,
+        "description": "A full LLM call proxied from the Pod runtime (HttpStream).\n\nMirrors the PipeStream wire contract: complete message history + tool\ndefinitions + sampling options; the Control Plane proxies to the real\nprovider through its RunSessionProvider and returns non-streaming content\nblocks (text / tool_use / thinking).\n\n``execution_unit_id`` is part of the bootstrap-granted subject the Pod\nalways signs with (see RestoreRequest).",
+        "properties": {
+          "attempt_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "execution_unit_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Execution Unit Id",
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 1.0,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "messages": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "model": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Model",
+            "type": "object"
+          },
+          "options": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Options",
+            "type": "object"
+          },
+          "run_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "system_prompt": {
+            "default": "",
+            "title": "System Prompt",
+            "type": "string"
+          },
+          "tenant_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "title": "Tools",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "run_id",
+          "attempt_id",
+          "generation",
+          "execution_unit_id"
+        ],
+        "title": "ModelCallRequest",
+        "type": "object"
+      },
+      "ModelCallResponse": {
+        "additionalProperties": false,
+        "description": "Non-streaming LLM response (content blocks + stop_reason + usage).\n\nThe Pod's HttpStream translates this back into\n``AsyncIterator[AssistantMessageEvent]`` for pi-agent-core (same shape the\npipe stream emits).",
+        "properties": {
+          "content": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "title": "Content",
+            "type": "array"
+          },
+          "stop_reason": {
+            "default": "end_turn",
+            "title": "Stop Reason",
+            "type": "string"
+          },
+          "usage": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Usage",
+            "type": "object"
+          }
+        },
+        "title": "ModelCallResponse",
+        "type": "object"
+      },
+      "ProposeActionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "action_ref": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Action Ref",
+            "type": "string"
+          },
+          "attempt_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "canonical_payload_ref": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Canonical Payload Ref",
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 1.0,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "run_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "tenant_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "run_id",
+          "attempt_id",
+          "generation",
+          "action_ref",
+          "canonical_payload_ref"
+        ],
+        "title": "ProposeActionRequest",
+        "type": "object"
+      },
+      "PublishArtifactRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "classification": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Classification",
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 1.0,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "logical_name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Logical Name",
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "tenant_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "workspace_path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Workspace Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "run_id",
+          "attempt_id",
+          "generation",
+          "workspace_path",
+          "logical_name",
+          "classification"
+        ],
+        "title": "PublishArtifactRequest",
+        "type": "object"
+      },
+      "ReadToolRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "arguments_ref": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Arguments Ref",
+            "type": "string"
+          },
+          "attempt_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 1.0,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "run_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "tenant_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "tool_name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Tool Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "run_id",
+          "attempt_id",
+          "generation",
+          "tool_name",
+          "arguments_ref"
+        ],
+        "title": "ReadToolRequest",
+        "type": "object"
+      },
+      "ReadToolResponse": {
+        "additionalProperties": false,
+        "description": "Resource proxy result returned to the Pod's remote_read_tool.",
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "resolved": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved"
+          },
+          "resource_ref": {
+            "title": "Resource Ref",
+            "type": "string"
+          },
+          "tool_name": {
+            "title": "Tool Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool_name",
+          "resource_ref",
+          "content"
+        ],
+        "title": "ReadToolResponse",
+        "type": "object"
+      },
+      "RestoreRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "execution_unit_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Execution Unit Id",
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 1.0,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "lease_owner": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Lease Owner",
+            "type": "string"
+          },
+          "lease_version": {
+            "minimum": 1.0,
+            "title": "Lease Version",
+            "type": "integer"
+          },
+          "run_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "tenant_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "run_id",
+          "attempt_id",
+          "generation",
+          "execution_unit_id",
+          "lease_owner",
+          "lease_version"
+        ],
+        "title": "RestoreRequest",
+        "type": "object"
+      },
+      "RestoreResponse": {
+        "additionalProperties": false,
+        "description": "Full checkpoint payload for the Pod runner to rehydrate its Agent.",
+        "properties": {
+          "agent_state": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Agent State",
+            "type": "object"
+          },
+          "agent_state_schema_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent State Schema Version"
+          },
+          "checkpoint_id": {
+            "title": "Checkpoint Id",
+            "type": "string"
+          },
+          "checkpoint_state": {
+            "title": "Checkpoint State",
+            "type": "string"
+          },
+          "snapshot_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot State"
+          },
+          "status": {
+            "default": "ok",
+            "title": "Status",
+            "type": "string"
+          },
+          "workflow_cursor": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Workflow Cursor",
+            "type": "object"
+          }
+        },
+        "required": [
+          "checkpoint_id",
+          "checkpoint_state"
+        ],
+        "title": "RestoreResponse",
+        "type": "object"
+      },
       "RunCreatedPayload": {
         "additionalProperties": false,
         "properties": {
@@ -917,6 +1983,54 @@
         "title": "RunViewSnapshot",
         "type": "object"
       },
+      "RuntimeFailureRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 1.0,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "reason_code": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          },
+          "run_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "tenant_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "run_id",
+          "attempt_id",
+          "generation",
+          "reason_code",
+          "retryable"
+        ],
+        "title": "RuntimeFailureRequest",
+        "type": "object"
+      },
       "StepState": {
         "enum": [
           "PENDING",
@@ -958,6 +2072,64 @@
           "version"
         ],
         "title": "StepSummary",
+        "type": "object"
+      },
+      "SurfacePublishRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "catalog_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Catalog Id",
+            "type": "string"
+          },
+          "document": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Document",
+            "type": "object"
+          },
+          "generation": {
+            "minimum": 1.0,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "protocol_version": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Protocol Version",
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "tenant_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "run_id",
+          "attempt_id",
+          "generation",
+          "catalog_id",
+          "protocol_version",
+          "document"
+        ],
+        "title": "SurfacePublishRequest",
         "type": "object"
       },
       "SurfaceRevision": {
@@ -1078,6 +2250,77 @@
         "title": "ToolInvocationState",
         "type": "string"
       },
+      "TurnCheckpointRequest": {
+        "additionalProperties": false,
+        "description": "Turn-level (mid-run) Checkpoint commit carrying the Agent snapshot.\n\nSame runtime subject + lease facts as HeartbeatRequest, plus the\npi-agent-core Agent state snapshot persisted at TurnEnd (the safe\ncheckpoint boundary, SDD §5.5).",
+        "properties": {
+          "agent_state": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Agent State",
+            "type": "object"
+          },
+          "agent_state_schema_version": {
+            "default": "pi-agent-core/v1",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Agent State Schema Version",
+            "type": "string"
+          },
+          "attempt_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "execution_unit_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Execution Unit Id",
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 1.0,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "lease_owner": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Lease Owner",
+            "type": "string"
+          },
+          "lease_version": {
+            "minimum": 1.0,
+            "title": "Lease Version",
+            "type": "integer"
+          },
+          "run_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "tenant_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "run_id",
+          "attempt_id",
+          "generation",
+          "execution_unit_id",
+          "lease_owner",
+          "lease_version"
+        ],
+        "title": "TurnCheckpointRequest",
+        "type": "object"
+      },
       "UiActionCommand": {
         "additionalProperties": false,
         "properties": {
@@ -1169,6 +2412,943 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/internal/v1/runtime/action-proposals": {
+      "post": {
+        "operationId": "proposeRuntimeAction",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposeActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalOperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Propose Action",
+        "tags": [
+          "internal-runtime"
+        ]
+      }
+    },
+    "/internal/v1/runtime/artifacts": {
+      "post": {
+        "operationId": "publishRuntimeArtifact",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishArtifactRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalOperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Publish Artifact",
+        "tags": [
+          "internal-runtime"
+        ]
+      }
+    },
+    "/internal/v1/runtime/bootstrap": {
+      "post": {
+        "operationId": "claimRuntimeBootstrap",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BootstrapRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootstrapResponseModel"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bootstrap",
+        "tags": [
+          "internal-runtime"
+        ]
+      }
+    },
+    "/internal/v1/runtime/checkpoints": {
+      "post": {
+        "operationId": "commitRuntimeTurnCheckpoint",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurnCheckpointRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalOperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Commit Checkpoint",
+        "tags": [
+          "internal-runtime"
+        ]
+      }
+    },
+    "/internal/v1/runtime/checkpoints/final": {
+      "post": {
+        "operationId": "commitRuntimeFinalCheckpoint",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinalCheckpointRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalOperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Commit Final Checkpoint",
+        "tags": [
+          "internal-runtime"
+        ]
+      }
+    },
+    "/internal/v1/runtime/failures": {
+      "post": {
+        "operationId": "recordRuntimeFailure",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuntimeFailureRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalOperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Failure",
+        "tags": [
+          "internal-runtime"
+        ]
+      }
+    },
+    "/internal/v1/runtime/heartbeat": {
+      "post": {
+        "operationId": "heartbeatRuntime",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HeartbeatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeartbeatResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Heartbeat",
+        "tags": [
+          "internal-runtime"
+        ]
+      }
+    },
+    "/internal/v1/runtime/model-call": {
+      "post": {
+        "operationId": "proxyRuntimeModelCall",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelCallRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelCallResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Model Call",
+        "tags": [
+          "internal-runtime"
+        ]
+      }
+    },
+    "/internal/v1/runtime/restore": {
+      "post": {
+        "operationId": "restoreRuntime",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestoreResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore",
+        "tags": [
+          "internal-runtime"
+        ]
+      }
+    },
+    "/internal/v1/runtime/tools/read": {
+      "post": {
+        "operationId": "invokeRuntimeReadTool",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadToolRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadToolResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Tool",
+        "tags": [
+          "internal-runtime"
+        ]
+      }
+    },
+    "/internal/v1/runtime/ui-surfaces/{surface_id}/revisions": {
+      "post": {
+        "operationId": "publishRuntimeSurfaceRevision",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "surface_id",
+            "required": true,
+            "schema": {
+              "title": "Surface Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SurfacePublishRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SurfaceRevision"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Publish Surface",
+        "tags": [
+          "internal-runtime"
+        ]
+      }
+    },
+    "/internal/v1/tenants/{tenant_id}/effects/{effect_id}/execute": {
+      "post": {
+        "operationId": "executeApprovedEffect",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "effect_id",
+            "required": true,
+            "schema": {
+              "title": "Effect Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Effect-Capability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Effect-Capability"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectExecutionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Execute Effect",
+        "tags": [
+          "internal-runtime"
+        ]
+      }
+    },
+    "/internal/v1/tenants/{tenant_id}/effects/{effect_id}/reconcile": {
+      "post": {
+        "operationId": "reconcileApprovedEffect",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "effect_id",
+            "required": true,
+            "schema": {
+              "title": "Effect Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Reconciliation-Capability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Reconciliation-Capability"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EffectReconciliationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectExecutionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reconcile Effect",
+        "tags": [
+          "internal-runtime"
+        ]
+      }
+    },
+    "/v1/chat": {
+      "post": {
+        "description": "Free-form conversation entry (Phase 3.6 frontend launcher).\n\nParses the natural-language message into an IntentPlan, then creates the\nRun through the exact same CreateRunCommand semantics as POST /runs\n(same idempotency, authorization and parameter-model guards). Follow-up\nquestions continue through the existing followup chain.",
+        "operationId": "chatCreateRun",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunViewSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable API error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable API error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable API error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable API error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable API error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable API error"
+          }
+        },
+        "summary": "Chat Create Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
     "/v1/runs": {
       "post": {
         "operationId": "createRun",
@@ -1580,6 +3760,89 @@
           }
         },
         "summary": "Authorize Artifact Download",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/attempts": {
+      "get": {
+        "description": "Return the full Attempt history for a Run.",
+        "operationId": "listRunAttempts",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttemptHistoryPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable API error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable API error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable API error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable API error"
+          }
+        },
+        "summary": "List Run Attempts",
         "tags": [
           "runs"
         ]
@@ -2095,6 +4358,87 @@
       }
     },
     "/v1/runs/{run_id}/followups": {
+      "get": {
+        "description": "Return the follow-up history for a Run.",
+        "operationId": "listFollowups",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowupHistoryPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable API error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable API error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable API error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable API error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable API error"
+          }
+        },
+        "summary": "List Followups",
+        "tags": [
+          "runs"
+        ]
+      },
       "post": {
         "description": "Append a read-only follow-up question to the Run's model session.",
         "operationId": "submitFollowup",

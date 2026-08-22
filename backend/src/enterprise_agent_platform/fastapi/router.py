@@ -10,6 +10,7 @@ from pydantic import Field
 
 from enterprise_agent_platform.artifacts.downloads import ArtifactDownloadRequest
 from enterprise_agent_platform.contracts.commands import (
+    ChatCommand,
     CreateRunCommand,
     FollowupCommand,
     UiActionCommand,
@@ -25,6 +26,7 @@ from enterprise_agent_platform.contracts.models import (
     StrictModel,
     SurfaceRevision,
 )
+from enterprise_agent_platform.control.chat import classify_intent
 from enterprise_agent_platform.control.context import RequestContext
 from enterprise_agent_platform.control.effect_recovery import FailedEffectRecoveryService
 from enterprise_agent_platform.control.views import RunQueryService
@@ -144,6 +146,53 @@ def create_agent_platform_router(container: AgentPlatformContainer) -> APIRouter
         run = await container.control.create_run(
             ctx,
             command,
+            key,
+            authorization=authority,
+        )
+        snapshot = await query.get_snapshot(ctx.tenant_id, run.run_id)
+        response.headers["Location"] = f"/v1/runs/{run.run_id}"
+        return snapshot
+
+    @router.post(
+        "/chat",
+        status_code=201,
+        response_model=RunViewSnapshot,
+        operation_id="chatCreateRun",
+        responses=_error_responses(401, 403, 409, 422, 500, 503),
+    )
+    async def chat_create_run(
+        command: ChatCommand,
+        response: Response,
+        ctx: Annotated[RequestContext, Depends(context)],
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> RunViewSnapshot:
+        """Free-form conversation entry (Phase 3.6 frontend launcher).
+
+        Parses the natural-language message into an IntentPlan, then creates the
+        Run through the exact same CreateRunCommand semantics as POST /runs
+        (same idempotency, authorization and parameter-model guards). Follow-up
+        questions continue through the existing followup chain.
+        """
+        require_scope(ctx, "runs:create")
+        key = _idempotency_key(idempotency_key)
+        plan = classify_intent(command.message, command.workflow_hint)
+        run_command = CreateRunCommand(
+            workflow_type=plan.workflow_type,
+            intent=plan.intent,
+            resource_refs=command.resource_refs,
+            host_context_ref=command.host_context_ref,
+        )
+        authority = await resolve_run_authorization(
+            ctx,
+            run_command,
+            resource_resolver=container.resource_resolver,
+            host_context_verifier=container.host_context_verifier,
+            policy_context_provider=container.policy_context_provider,
+            timeout_seconds=container.host_port_timeout_seconds,
+        )
+        run = await container.control.create_run(
+            ctx,
+            run_command,
             key,
             authorization=authority,
         )

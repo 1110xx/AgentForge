@@ -6,9 +6,7 @@
       "type": "string"
     },
     "details": {
-      "additionalProperties": {
-        "type": "string"
-      },
+      "additionalProperties": true,
       "title": "Details",
       "type": "object"
     },

@@ -1,5 +1,45 @@
 {
   "$defs": {
+    "ActionProposalPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "action_ref": {
+          "title": "Action Ref",
+          "type": "string"
+        },
+        "attempt_id": {
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "action.proposal",
+          "title": "Kind",
+          "type": "string"
+        },
+        "proposal_state": {
+          "title": "Proposal State",
+          "type": "string"
+        },
+        "risk_class": {
+          "title": "Risk Class",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "action_ref",
+        "run_id",
+        "attempt_id",
+        "proposal_state",
+        "risk_class"
+      ],
+      "title": "ActionProposalPayload",
+      "type": "object"
+    },
     "ApprovalDecidedPayload": {
       "additionalProperties": false,
       "properties": {
@@ -34,6 +74,52 @@
       ],
       "title": "ApprovalState",
       "type": "string"
+    },
+    "ArtifactVersionPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "classification": {
+          "title": "Classification",
+          "type": "string"
+        },
+        "kind": {
+          "const": "artifact.version",
+          "title": "Kind",
+          "type": "string"
+        },
+        "logical_name": {
+          "title": "Logical Name",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "state": {
+          "title": "State",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "artifact_id",
+        "run_id",
+        "logical_name",
+        "classification",
+        "version",
+        "state"
+      ],
+      "title": "ArtifactVersionPayload",
+      "type": "object"
     },
     "AttemptLifecyclePayload": {
       "additionalProperties": false,
@@ -157,7 +243,9 @@
         "payload": {
           "discriminator": {
             "mapping": {
+              "action.proposal": "#/$defs/ActionProposalPayload",
               "approval.decided": "#/$defs/ApprovalDecidedPayload",
+              "artifact.version": "#/$defs/ArtifactVersionPayload",
               "attempt.lifecycle": "#/$defs/AttemptLifecyclePayload",
               "effect.status.changed": "#/$defs/EffectStatusChangedPayload",
               "run.created": "#/$defs/RunCreatedPayload",
@@ -188,6 +276,12 @@
             },
             {
               "$ref": "#/$defs/UiSurfaceCommittedPayload"
+            },
+            {
+              "$ref": "#/$defs/ArtifactVersionPayload"
+            },
+            {
+              "$ref": "#/$defs/ActionProposalPayload"
             }
           ],
           "title": "Payload"
@@ -249,7 +343,9 @@
         "tool.invocation.recorded",
         "approval.decided",
         "effect.status.changed",
-        "ui.surface.committed"
+        "ui.surface.committed",
+        "artifact.version",
+        "action.proposal"
       ],
       "title": "EventType",
       "type": "string"
