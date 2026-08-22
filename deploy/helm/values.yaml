@@ -5,6 +5,53 @@ images:
   runtime:
     repository: registry.example.invalid/enterprise-agent-platform/runtime
     digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  frontend:
+    repository: registry.example.invalid/enterprise-agent-platform/frontend
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+# Optional web frontend (Phase 3.6): the Vite-built AgentLauncher/AgentPanel
+# SPA hosted by nginx with an embedded reverse proxy forwarding SDK traffic
+# (POST /v1/chat, SSE) to the API Service. Disabled by default: the control
+# plane is API-only.
+frontend:
+  enabled: false
+  replicas: 2
+
+  # Static nginx pod with the SPA + API reverse proxy. The ingress serves the
+  # root path to this workload; /api/agent-platform still hits the dedicated
+  # API Service directly (longest path wins).
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+  # HTTP probes against the nginx static site (path "/").
+  probes:
+    readiness:
+      path: /
+      initialDelaySeconds: 3
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 3
+    liveness:
+      path: /
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+
+  nginx:
+    # Where the frontend image serves its built assets from.
+    staticRoot: /usr/share/nginx/html
+    apiServiceName: agent-platform-api
+    apiPort: 8080
+    # SSE: the embedded reverse proxy disables buffering and the ingress gets
+    # nginx.ingress.kubernetes.io/proxy-buffering=off when frontend is on,
+    # keeping the /v1/*/events stream flowing.
+    proxyReadTimeoutSeconds: 3600
 
 controlPlane:
   replicas: 3

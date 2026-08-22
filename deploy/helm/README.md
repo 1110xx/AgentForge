@@ -30,6 +30,8 @@ kind 开发渲染 **29 个**；开启 Ingress+PVC 的扩展渲染 **31 个**。
 | `images.controlPlane.digest` | `sha256:0000…0`（占位） | 必须替换为真实 digest；schema 强制 `^sha256:[0-9a-f]{64}$` |
 | `images.runtime.repository` | `registry.example.invalid/.../runtime` | Attempt 沙箱运行时镜像仓库 |
 | `images.runtime.digest` | `sha256:0000…0`（占位） | 同上；由 orchestrator 注入 `AGENT_PLATFORM_RUNTIME_IMAGE` |
+| `images.frontend.repository` | `registry.example.invalid/.../frontend` | Phase 3.6 前端镜像（nginx + Vite 构建产物），仅 `frontend.enabled=true` 时使用 |
+| `images.frontend.digest` | `sha256:0000…0`（占位） | 同上 |
 
 > 生产镜像仓库与 digest 由 CI/CD 构建并注入（见 `scripts/test-kind.sh` 的注入流程）。
 > 占位 digest 部署会 pull 失败 —— 这是有意的 fail-closed。
@@ -193,6 +195,33 @@ TLS 两种接入方式：
 
 默认关闭的原因：控制面 API 是**内部网关**（Sandbox Pod 经 Internal API 反向代理），
 对外只暴露公网 API 路径；生产按网络拓扑（入口控制器 / WAF / mTLS 网格）选择暴露方式。
+
+Phase 3.6：`frontend.enabled=true` 时（也要求 `ingress.enabled=true`）Ingress 规则
+增加第二条 path —— `path: /`（Prefix）→ `agent-platform-frontend:http`；同一规则
+`/api/agent-platform`（Prefix）仍指向 `agent-platform-api:http`，nginx-ingress 按最长
+路径前缀分流，API 与静态站点互不干扰。SSE 反缓冲：该 profile 下 Ingress
+annotations 注入 `nginx.ingress.kubernetes.io/proxy-buffering: "off"`（用户 annotations
+会被保留并叠加）。
+
+### 2.10 `frontend` — 前端工作负载（Phase 3.6，可选，默认关）
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `frontend.enabled` | `false` | 开启后额外渲染 Deployment/Service/ConfigMap，并在 Ingress 加根路径 |
+| `frontend.replicas` | `2` | 静态 nginx 副本数 |
+| `frontend.resources` | `requests 50m/64Mi`，`limits 250m/256Mi` | 静态站点 + 反代，nginx 极轻量 |
+| `frontend.probes` | `path=/`（ready/live） | 探针打在 index 上；`http://svc/` 必须 200 才 Ready |
+| `frontend.nginx.staticRoot` | `/usr/share/nginx/html` | 镜像内 Vite 构建产物目录 |
+| `frontend.nginx.apiServiceName` / `apiPort` | `agent-platform-api` / `8080` | 内嵌反代的 API Service 目标 |
+| `frontend.nginx.proxyReadTimeoutSeconds` | `3600` | SSE 长连接读超时 |
+
+工作方式：浏览器只连前端站点；SDK 的 `/api/agent-platform/*` 请求由内嵌 nginx
+反代到 API Service（`proxy_buffering off` 保 SSE 流）。Ingress 上 `/api/agent-platform`
+仍是**最长路径优先**直通 API Service，`/` 根路径进前端；Ingress 层同步注入
+`nginx.ingress.kubernetes.io/proxy-buffering: "off"`。
+
+前端镜像（nginx + `dist`）不在本仓库构建，由宿主 CI/CD 产出后注入
+`images.frontend.*`（与迁移 Job 相同的镜像注入流程）。
 
 ## 7. PVC
 

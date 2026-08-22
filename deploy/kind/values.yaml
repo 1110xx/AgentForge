@@ -5,6 +5,13 @@ images:
   runtime:
     repository: localhost:5001/enterprise-agent-platform/runtime
     digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  frontend:
+    repository: localhost:5001/enterprise-agent-platform/frontend
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+# Kind verification is API-only; enable frontend in check-k8s profile 4.
+frontend:
+  enabled: false
 
 controlPlane:
   replicas: 1

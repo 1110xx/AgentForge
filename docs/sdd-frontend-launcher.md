@@ -236,10 +236,13 @@ steps: checkout → setup-node(v22) + npm ci → npm run lint → npm run test �
 - 联调：新增 `scripts/verify-frontend-live.sh`（无 docker 静态门）——起 uvicorn reference local stack（或探测已在线后端）+ vite dev，验证：直连 `/v1/chat` 201+snapshot / 幂等重放同 run / 空白 422 / vite dev proxy 201（SSE 反缓冲路径）；本地实测 **4/4 全绿**。联调注意：Windows 控制台 curl 传中文参数会转码失败（400），脚本消息统一 ASCII（中文意图覆盖在 pytest/前端单测）。
 - 脚本运行时产物（`.verify-live-*.log/.json`）不入库。
 
-### Phase F-D：正式应用层（CI + Helm + 联调）
+### Phase F-D：正式应用层（CI + Helm + 联调）✅ 已完成（2026-08-23）
 
-- 文件：`.github/workflows/ci.yml`（`frontend-gate`）、`deploy/helm/`（values/schema/templates/README）、`scripts/check-k8s.sh`（+profile）、`scripts/verify-frontend-live.sh`、`deploy/DOCS.md`
-- 验收：CI frontend job 绿；`check-k8s.sh` 四 profile 绿；live 联调脚本断言全过。
+- 交付：
+  - `.github/workflows/ci.yml` 新增 `frontend-gate` job（setup-node v4 + node 22，npm ci → lint → vitest → typecheck → build 全 workspace，cache 指向 frontend/package-lock.json）。
+  - `deploy/helm/`：`images.frontend` + `frontend` values 段（enabled/replicas/resources/probes/nginx{staticRoot,apiServiceName,apiPort,proxyReadTimeoutSeconds}）；新 template `frontend-configmap.yaml`（nginx 静态站点 + 内嵌反代 `/api/agent-platform/` → api svc，`proxy_buffering off` 保 SSE，`$uri/$host` Go template 字面量转义验证通过）、`frontend-deployment.yaml`（探针/securityContext/resources 对齐 api 模式）、`frontend-service.yaml`（ClusterIP 80）；`ingress.yaml` 增根路径 `path:/` → frontend svc（最长路径优先，API 路径仍直通 api svc）+ `nginx.ingress.kubernetes.io/proxy-buffering: "off"`（frontend enabled 时注入，用户 annotations 叠加）；`values.schema.json` 同步（frontend 全键 additionalProperties:false + $defs.image 复用）；`deploy/kind/values.yaml` 补 images.frontend + frontend.enabled:false；helm README 2.1/2.10/6 章节、deploy/DOCS.md 目录与验证状态更新。
+  - `scripts/check-k8s.sh` 第四 profile `render_frontend`（kind values + frontend.enabled + ingress/TLS）及 Python 断言：frontend+api 双 Deployment、ConfigMap `proxy_buffering off`、Ingress SSE annotation + 根路径。
+- 验收：check-k8s 四 profile 全绿（frontend.yaml 33 manifests：ConfigMap/Deployment/Ingress/Service…）；lint 默认+kind 过（schema 强校验）；live 联调脚本此前 4/4 已绿。前端镜像（nginx+dist）不在本仓库构建，由宿主 CI/CD 注入 `images.frontend.*`（镜像契约与迁移 Job 一致）。
 
 ### Phase F-E：收尾
 

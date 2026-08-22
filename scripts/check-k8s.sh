@@ -100,14 +100,36 @@ render_extended() {
     >"$temporary_root/extended.yaml"
 }
 
+# Profile 4 (Phase 3.6): production frontend workload — nginx SPA + API
+# reverse proxy ConfigMap, frontend Deployment/Service, and the ingress with
+# the root path added (SSE buffering annotation present).
+render_frontend() {
+  "$helm_command" template agent-platform-fe "$root_dir/deploy/helm" \
+    --values "$root_dir/deploy/kind/values.yaml" \
+    --set-string "images.controlPlane.repository=localhost:5001/enterprise-agent-platform/control-plane" \
+    --set-string "images.controlPlane.digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+    --set-string "images.runtime.repository=localhost:5001/enterprise-agent-platform/runtime" \
+    --set-string "images.runtime.digest=sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" \
+    --set-string "images.frontend.repository=localhost:5001/enterprise-agent-platform/frontend" \
+    --set-string "images.frontend.digest=sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" \
+    --set "frontend.enabled=true" \
+    --set "ingress.enabled=true" \
+    --set "ingress.host=agent-platform.example.org" \
+    --set "ingress.tls.enabled=true" \
+    --set "ingress.tls.secretName=agent-platform-example-tls" \
+    >"$temporary_root/frontend.yaml"
+}
+
 render_kind
 echo "helm template (kind values) rendered"
 render_prod
 echo "helm template (production values) rendered"
 render_extended
 echo "helm template (extended: ingress+pvc) rendered"
+render_frontend
+echo "helm template (frontend profile) rendered"
 
-"$python_command" - "$temporary_root/kind.yaml" "$temporary_root/prod.yaml" "$temporary_root/extended.yaml" <<'PY'
+"$python_command" - "$temporary_root/kind.yaml" "$temporary_root/prod.yaml" "$temporary_root/extended.yaml" "$temporary_root/frontend.yaml" <<'PY'
 import sys
 
 import yaml
@@ -117,6 +139,27 @@ for path in sys.argv[1:]:
         documents = [doc for doc in yaml.safe_load_all(handle) if doc]
     kinds = sorted({doc["kind"] for doc in documents})
     print(f"{path}: {len(documents)} manifests, kinds={','.join(kinds)}")
+
+# Profile 4 assertions: frontend workload present with the nginx reverse
+# proxy ConfigMap, and the ingress carries the SSE annotation + root path.
+frontend = [
+    doc
+    for doc in yaml.safe_load_all(open(sys.argv[4], encoding="utf-8"))
+    if doc
+]
+f_names = {doc.get("metadata", {}).get("name") for doc in frontend if doc.get("kind") == "Deployment"}
+assert "agent-platform-frontend" in f_names, "frontend Deployment missing"
+assert "agent-platform-api" in f_names, "api Deployment missing"
+f_kinds = {doc["kind"] for doc in frontend}
+assert {"ConfigMap", "Deployment", "Service", "Ingress"} <= f_kinds, f"frontend kinds: {f_kinds}"
+ing = next(doc for doc in frontend if doc["kind"] == "Ingress")
+anns = ing.get("metadata", {}).get("annotations", {})
+assert anns.get("nginx.ingress.kubernetes.io/proxy-buffering") == "off", anns
+paths = ing["spec"]["rules"][0]["http"]["paths"]
+assert any(p["path"] == "/" for p in paths), "frontend root path missing in ingress"
+conf = next(doc for doc in frontend if doc["kind"] == "ConfigMap")
+assert "proxy_buffering off;" in conf["data"]["default.conf"]
+print("frontend profile: api+frontend deployments, ConfigMap proxy, ingress SSE annotation OK")
 PY
 
 echo "k8s static gate passed"

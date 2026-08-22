@@ -1,0 +1,16 @@
+{{- if .Values.frontend.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-platform-frontend
+  namespace: agent-platform-control
+  labels:
+    app.kubernetes.io/name: agent-platform-frontend
+spec:
+  selector:
+    app.kubernetes.io/name: agent-platform-frontend
+  ports:
+    - port: 80
+      targetPort: http
+      name: http
+{{- end }}

@@ -6,9 +6,17 @@ metadata:
   namespace: agent-platform-control
   labels:
     app.kubernetes.io/name: agent-platform-api
-  {{- with .Values.ingress.annotations }}
+  {{- if .Values.ingress.annotations }}
   annotations:
-    {{- toYaml . | nindent 4 }}
+    {{- if .Values.frontend.enabled }}
+    # Keep the SSE stream flowing through the ingress for the frontend API
+    # path (Phase 3.6).
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    {{- end }}
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+  {{- else if .Values.frontend.enabled }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
   {{- end }}
 spec:
   {{- with .Values.ingress.className }}
@@ -25,6 +33,15 @@ spec:
                 name: agent-platform-api
                 port:
                   name: http
+          {{- if .Values.frontend.enabled }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: agent-platform-frontend
+                port:
+                  name: http
+          {{- end }}
   {{- if and .Values.ingress.tls.enabled .Values.ingress.tls.secretName }}
   tls:
     - hosts:

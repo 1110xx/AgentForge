@@ -25,6 +25,9 @@
         },
         "runtime": {
           "$ref": "#/$defs/image"
+        },
+        "frontend": {
+          "$ref": "#/$defs/image"
         }
       }
     },
@@ -333,6 +336,60 @@
         "enabled": {
           "type": "boolean",
           "default": true
+        }
+      }
+    },
+    "frontend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "replicas",
+        "resources",
+        "probes",
+        "nginx"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resources": {
+          "$ref": "#/$defs/resources"
+        },
+        "probes": {
+          "$ref": "#/$defs/probes"
+        },
+        "nginx": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "staticRoot",
+            "apiServiceName",
+            "apiPort",
+            "proxyReadTimeoutSeconds"
+          ],
+          "properties": {
+            "staticRoot": {
+              "type": "string",
+              "minLength": 1
+            },
+            "apiServiceName": {
+              "type": "string",
+              "minLength": 1
+            },
+            "apiPort": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "proxyReadTimeoutSeconds": {
+              "type": "integer",
+              "minimum": 30
+            }
+          }
         }
       }
     }
