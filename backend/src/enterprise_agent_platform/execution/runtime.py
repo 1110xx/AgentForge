@@ -431,12 +431,14 @@ class AgentRuntime:
                 # Refresh the lease so the final checkpoint carries a fresh
                 # lease_version (turn-level commits already wrote Agent
                 # snapshots; this terminal write makes the final state durable
-                # before the Run transitions to SUCCEEDED).
+                # before the Run transitions to SUCCEEDED). Use the freshest
+                # context (turn-level heartbeats bump the lease_version, so
+                # the original Step-2 context would CAS-fail with a 409).
                 try:
-                    context = await self._control.heartbeat(context)
+                    context = await self._control.heartbeat(self._context)
                     self._context = context
                 except Exception:
-                    pass
+                    context = self._context
                 await self._control.commit_final_checkpoint(
                     context,
                     summary=summary,

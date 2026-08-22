@@ -69,6 +69,11 @@ spec:
                 secretKeyRef:
                   name: "{{ .Values.secrets.externalSecretName }}"
                   key: AGENT_PLATFORM_NATS_STREAM
+            - name: AGENT_PLATFORM_NATS_STREAM_REPLICAS
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ .Values.secrets.externalSecretName }}"
+                  key: AGENT_PLATFORM_NATS_STREAM_REPLICAS
           resources:
             requests:
               cpu: 250m

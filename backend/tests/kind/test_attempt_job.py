@@ -107,7 +107,7 @@ def test_attempt_job_runs_to_completion_in_kind() -> None:
         assert "attempt.lifecycle" in event_types, event_types
         assert "run.status.changed" in event_types, event_types
         assert any(
-            "SUCCEEDED" in str(event.get("details", {}))
+            "SUCCEEDED" in str(event.get("payload", {}))
             for event in events["events"]
         ), "no SUCCEEDED detail found in events"
 
