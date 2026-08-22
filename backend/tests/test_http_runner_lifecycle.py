@@ -101,6 +101,7 @@ def test_http_runner_full_lifecycle() -> None:
         subject = {
             "tenant_id": REFERENCE_LOCAL_TENANT,
             "run_id": run_id,
+            "execution_unit_id": attempt.execution_unit_id,
             "attempt_id": attempt.attempt_id,
             "generation": attempt.generation,
         }
@@ -260,6 +261,7 @@ def test_http_runner_rejects_wrong_runtime_token() -> None:
                 "tenant_id": REFERENCE_LOCAL_TENANT,
                 "run_id": run_id,
                 "attempt_id": attempt.attempt_id,
+                "execution_unit_id": attempt.execution_unit_id,
                 "generation": attempt.generation,
                 "lease_owner": "http-runtime:forged",
                 "lease_version": 1,
@@ -280,6 +282,66 @@ def test_http_runner_rejects_wrong_runtime_token() -> None:
         assert invalid.status_code == 401, invalid.text
 
 
+def test_http_bootstrap_grant_subject_reaches_restore() -> None:
+    """AgentRuntime must sign HTTP ops with the bootstrap grant's subject.
+
+    L3 gate catch: the Pod's restore failed 422 because the RuntimeContext was
+    built without tenant_id/run_id/execution_unit_id from the grant — the
+    Internal API rejects the empty-subject body. This test pins the contract:
+    whatever the BootstrapClient claims must be what restore receives.
+    """
+    import asyncio
+
+    from enterprise_agent_platform.execution.runtime import (
+        AgentRuntime,
+        BootstrapGrant,
+        RuntimeCheckpoint,
+        RuntimeContext,
+    )
+    from enterprise_agent_platform.persistence.protocol import PlatformError
+
+    seen: dict[str, RuntimeContext] = {}
+
+    class _Bootstrap:
+        async def claim(
+            self, *, bootstrap_token: str, pod_uid: str, attempt_id: str, generation: int
+        ) -> BootstrapGrant:
+            return BootstrapGrant(
+                runtime_token="runtime-token:a",
+                lease_owner="http-runtime:a",
+                lease_version=2,
+                expires_at="2026-08-21T00:00:00Z",
+                tenant_id="tenant-http",
+                run_id="run-http",
+                execution_unit_id="unit-http",
+            )
+
+    class _Control:
+        async def restore(self, context: RuntimeContext) -> RuntimeCheckpoint:
+            seen["ctx"] = context
+            raise PlatformError("stop-after-restore", "test boundary")
+
+    class _Identity:
+        async def provide(self) -> tuple[str, str]:
+            return ("projected:tenant-http", "pod-1")
+
+    runtime = AgentRuntime(
+        bootstrap=_Bootstrap(),
+        control=_Control(),
+        identity_provider=_Identity(),
+    )
+    exit_code = asyncio.run(runtime.run(attempt_id="attempt-http", generation=1))
+    assert exit_code == 78, "restore failure at the test boundary is exit 78"
+
+    ctx = seen["ctx"]
+    assert ctx.tenant_id == "tenant-http"
+    assert ctx.run_id == "run-http"
+    assert ctx.execution_unit_id == "unit-http"
+    assert ctx.attempt_id == "attempt-http"
+    assert ctx.lease_owner == "http-runtime:a"
+    assert ctx.lease_version == 2
+
+
 def test_model_call_rejects_unknown_op_scope() -> None:
     client, _ = _client()
     with client:
@@ -290,6 +352,7 @@ def test_model_call_rejects_unknown_op_scope() -> None:
             json={
                 "tenant_id": REFERENCE_LOCAL_TENANT,
                 "run_id": "run-missing",
+                "execution_unit_id": "unit-missing",
                 "attempt_id": "attempt-missing",
                 "generation": 1,
                 "model": {"id": "deepseek-chat", "api": "deepseek", "provider": "deepseek"},

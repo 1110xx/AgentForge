@@ -36,7 +36,9 @@ def create_app_from_env() -> FastAPI:
     else:
         raise TypeError("AGENT_PLATFORM_CONTAINER_FACTORY returned an unsupported object")
 
-    paths = {route.path for route in app.routes}
+    # Newer Starlette versions include ``_IncludedRouter`` entries without a
+    # ``path`` attribute; only real routes carry one.
+    paths = {route.path for route in app.routes if hasattr(route, "path")}
     if "/api/agent-platform/v1/health/live" not in paths:
 
         @app.get("/api/agent-platform/v1/health/live", include_in_schema=False)

@@ -25,7 +25,7 @@ REFERENCE_LOCAL_BEARER = "Bearer reference-local-demo"
 REFERENCE_LOCAL_TENANT = "reference-local"
 
 
-class _ReferenceAuth:
+class ReferenceLocalAuth:
     async def authenticate(
         self,
         authorization: str | None,
@@ -43,7 +43,7 @@ class _ReferenceAuth:
         )
 
 
-class _ReferenceResources:
+class ReferenceSyntheticResources:
     async def resolve(self, ctx: RequestContext, resource_ref: str) -> ResolvedResource:
         if not resource_ref.startswith(("synthetic-case:", "synthetic-dataset:")):
             raise HostPortError("NOT_FOUND", "reference resource was not found")
@@ -59,7 +59,7 @@ class _ReferenceResources:
         )
 
 
-class _ReferenceHostContext:
+class ReferenceHostContextVerifier:
     async def verify(self, ctx: RequestContext, host_context_ref: str) -> VerifiedHostContext:
         if not host_context_ref.startswith("reference-context:"):
             raise HostPortError("HOST_CONTEXT_FORGED", "reference context is invalid")
@@ -72,7 +72,7 @@ class _ReferenceHostContext:
         )
 
 
-class _ReferencePolicy:
+class ReferenceAllowAllPolicy:
     async def resolve(
         self,
         ctx: RequestContext,
@@ -94,10 +94,10 @@ class _ReferencePolicy:
 def create_container() -> AgentPlatformContainer:
     """Create a fresh process-local, non-durable API container."""
     return create_in_memory_container(
-        auth_context_provider=_ReferenceAuth(),
-        resource_resolver=_ReferenceResources(),
-        host_context_verifier=_ReferenceHostContext(),
-        policy_context_provider=_ReferencePolicy(),
+        auth_context_provider=ReferenceLocalAuth(),
+        resource_resolver=ReferenceSyntheticResources(),
+        host_context_verifier=ReferenceHostContextVerifier(),
+        policy_context_provider=ReferenceAllowAllPolicy(),
         run_sessions=InMemoryRunSessionProvider(),
     )
 
@@ -109,6 +109,10 @@ def create_app() -> FastAPI:
 __all__ = [
     "REFERENCE_LOCAL_BEARER",
     "REFERENCE_LOCAL_TENANT",
+    "ReferenceAllowAllPolicy",
+    "ReferenceHostContextVerifier",
+    "ReferenceLocalAuth",
+    "ReferenceSyntheticResources",
     "create_app",
     "create_container",
 ]

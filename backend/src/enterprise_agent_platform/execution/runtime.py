@@ -323,6 +323,13 @@ class AgentRuntime:
             runtime_token=grant.runtime_token,
             lease_owner=grant.lease_owner,
             lease_version=grant.lease_version,
+            # HTTP ops (restore/heartbeat/checkpoints/model-call) are signed
+            # with the subject facts from the bootstrap grant — without them
+            # the Pod sends empty tenant_id/run_id and every Internal API op
+            # fails validation (L3 gate catch).
+            tenant_id=grant.tenant_id,
+            run_id=grant.run_id,
+            execution_unit_id=grant.execution_unit_id,
         )
         self._context = context
 

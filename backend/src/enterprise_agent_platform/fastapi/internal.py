@@ -130,6 +130,11 @@ class RuntimeSubjectRequest(StrictModel):
 
 
 class RestoreRequest(RuntimeSubjectRequest):
+    # The Pod's HTTP runtime signs every op with the full subject it was
+    # granted at bootstrap (http_runtime._subject()); the Internal API must
+    # accept the unit id as part of the wire contract (extra="forbid" would
+    # otherwise reject it).
+    execution_unit_id: Annotated[str, Field(min_length=1, max_length=255)]
     lease_owner: Annotated[str, Field(min_length=1, max_length=255)]
     lease_version: Annotated[int, Field(ge=1)]
 
@@ -159,8 +164,12 @@ class ModelCallRequest(RuntimeSubjectRequest):
     definitions + sampling options; the Control Plane proxies to the real
     provider through its RunSessionProvider and returns non-streaming content
     blocks (text / tool_use / thinking).
+
+    ``execution_unit_id`` is part of the bootstrap-granted subject the Pod
+    always signs with (see RestoreRequest).
     """
 
+    execution_unit_id: Annotated[str, Field(min_length=1, max_length=255)]
     model: dict[str, JsonValue] = Field(default_factory=dict)
     system_prompt: str = ""
     messages: list[dict[str, JsonValue]] = Field(default_factory=list)

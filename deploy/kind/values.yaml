@@ -7,7 +7,8 @@ images:
     digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
 controlPlane:
-  replicas: 3
+  replicas: 1
+  workersReplicas: 1
   apiPort: 8080
   kubernetesApiCidr: 10.96.0.1/32
   dependencyEgressCidr: 10.0.0.0/8
@@ -26,13 +27,14 @@ dependencies:
   oidc:
     issuer: http://oidc.agent-platform-dependencies.svc:8080/default
 secrets:
-  externalSecretName: agent-platform-dependencies
+  externalSecretContract: false
+  externalSecretName: agent-platform-kind-dependencies
   storeRefName: agent-platform-kind-dependencies
   storeRefKind: SecretStore
   remoteKey: placeholder
 
 integration:
-  containerFactory: enterprise_integration.agent_platform:create_container
+  containerFactory: enterprise_agent_platform.reference.k8s_container:create_container
   workerFactory: enterprise_agent_platform.execution.k8s_worker:run_worker
 
 sandbox:
@@ -42,6 +44,7 @@ sandbox:
   maxActiveAttempts: 10
 
 autoscaling:
-  minReplicas: 2
+  enabled: false
+  minReplicas: 1
   maxReplicas: 20
   pendingMessagesPerReplica: "5"

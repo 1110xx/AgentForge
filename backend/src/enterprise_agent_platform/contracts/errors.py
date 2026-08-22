@@ -12,7 +12,9 @@ class ApiErrorEnvelope(StrictModel):
     message: str
     trace_id: str | None = None
     retryable: bool = False
-    details: dict[str, str] = Field(default_factory=dict)
+    # JSON-serialisable detail payload (validation errors carry their loc/msg
+    # records; callers must keep values JSON-safe).
+    details: dict[str, object] = Field(default_factory=dict)
 
 
 class InvalidTransitionError(ValueError):

@@ -156,7 +156,11 @@ class HttpRuntimeClient:
         if response.status_code >= 400:
             message = ""
             try:
-                message = str(response.json().get("message", ""))
+                payload = response.json()
+                message = str(payload.get("message", ""))
+                detail = payload.get("detail")
+                if detail:
+                    message = f"{message} detail={detail}"
             except Exception:  # noqa: BLE001 - error body is best-effort only
                 logger.debug("non-JSON error body from %s", path)
             raise RuntimeError(

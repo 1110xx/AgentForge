@@ -1,7 +1,10 @@
 """Standalone FastAPI application/router factory without global host state."""
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
@@ -14,6 +17,8 @@ from enterprise_agent_platform.persistence.protocol import PlatformError
 from .dependencies import AgentPlatformContainer, request_trace_id
 from .router import create_agent_platform_router
 
+_logger = logging.getLogger(__name__)
+
 
 def _error_response(
     request: Request,
@@ -22,6 +27,7 @@ def _error_response(
     message: str,
     retryable: bool = False,
     headers: dict[str, str] | None = None,
+    details: object | None = None,
 ) -> JSONResponse:
     body = ApiErrorEnvelope(
         schema_version="api-error/v1",
@@ -29,6 +35,7 @@ def _error_response(
         message=message,
         trace_id=request_trace_id(request),
         retryable=retryable,
+        details=details or {},
     )
     return JSONResponse(
         status_code=status_code,
@@ -159,6 +166,7 @@ def create_agent_platform_app(container: AgentPlatformContainer) -> FastAPI:
             status_code=422,
             code="REQUEST_VALIDATION_FAILED",
             message="request validation failed",
+            details={"errors": jsonable_encoder(error.errors())},
         )
 
     @app.exception_handler(StarletteHttpException)
@@ -173,7 +181,7 @@ def create_agent_platform_app(container: AgentPlatformContainer) -> FastAPI:
 
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, error: Exception) -> JSONResponse:
-        del error
+        _logger.exception("unhandled error on %s %s", request.method, request.url.path)
         return _error_response(
             request,
             status_code=500,

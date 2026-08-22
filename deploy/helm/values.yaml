@@ -8,6 +8,7 @@ images:
 
 controlPlane:
   replicas: 3
+  workersReplicas: 2
   apiPort: 8080
   kubernetesApiCidr: 10.96.0.1/32
   dependencyEgressCidr: 10.0.0.0/8
@@ -27,6 +28,7 @@ dependencies:
     issuer: https://identity.example.invalid
 
 secrets:
+  externalSecretContract: true
   externalSecretName: agent-platform-dependencies
   storeRefName: enterprise-secret-store
   storeRefKind: ClusterSecretStore
@@ -35,7 +37,7 @@ secrets:
 integration:
   # Host adapters may override either factory; the platform ships its own
   # Kubernetes worker (Phase 3): scheduler -> K8s Job dispatch runner.
-  containerFactory: enterprise_integration.agent_platform:create_container
+  containerFactory: enterprise_agent_platform.reference.k8s_container:create_container
   workerFactory: enterprise_agent_platform.execution.k8s_worker:run_worker
 
 sandbox:
@@ -45,6 +47,7 @@ sandbox:
   maxActiveAttempts: 100
 
 autoscaling:
+  enabled: true
   minReplicas: 2
   maxReplicas: 20
   pendingMessagesPerReplica: "5"

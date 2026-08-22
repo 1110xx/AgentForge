@@ -1,3 +1,4 @@
+{{- if .Values.autoscaling.enabled }}
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
@@ -18,3 +19,4 @@ spec:
         stream: "{{ .Values.dependencies.nats.stream }}"
         consumer: agent-platform-orchestrator
         lagThreshold: "{{ .Values.autoscaling.pendingMessagesPerReplica }}"
+{{- end }}

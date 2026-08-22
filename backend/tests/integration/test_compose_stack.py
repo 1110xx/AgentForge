@@ -25,10 +25,10 @@ from enterprise_agent_platform.control.views import RunQueryService
 from enterprise_agent_platform.integration.host import resolve_run_authorization
 from enterprise_agent_platform.persistence.sqlalchemy_store import SqlAlchemyPlatformStore
 from enterprise_agent_platform.reference.local_stack import (
-    _ReferenceAuth,
-    _ReferenceHostContext,
-    _ReferencePolicy,
-    _ReferenceResources,
+    ReferenceAllowAllPolicy,
+    ReferenceHostContextVerifier,
+    ReferenceLocalAuth,
+    ReferenceSyntheticResources,
 )
 from enterprise_agent_platform.reference.provider import ReferenceWorkflowHarness
 
@@ -79,10 +79,10 @@ def _run(coro) -> object:
 
 def _make_container(store: SqlAlchemyPlatformStore):
     return create_in_memory_container(
-        auth_context_provider=_ReferenceAuth(),
-        resource_resolver=_ReferenceResources(),
-        host_context_verifier=_ReferenceHostContext(),
-        policy_context_provider=_ReferencePolicy(),
+        auth_context_provider=ReferenceLocalAuth(),
+        resource_resolver=ReferenceSyntheticResources(),
+        host_context_verifier=ReferenceHostContextVerifier(),
+        policy_context_provider=ReferenceAllowAllPolicy(),
         store=store,
     )
 

@@ -20,19 +20,26 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "checkpoint",
-        sa.Column("agent_state", sa.JSON(), nullable=False, server_default=sa.text("'{}'")),
-    )
-    op.add_column(
-        "checkpoint",
-        sa.Column(
-            "agent_state_schema_version",
-            sa.String(64),
-            nullable=False,
-            server_default=sa.text("'pi-agent-core/v1'"),
-        ),
-    )
+    # Idempotent guards: 0001 creates tables from the *current* Core metadata
+    # (which already lists agent_state), so a fresh database must not be
+    # re-altered — the columns are either present from create_all or from an
+    # earlier 0001-then-0002 upgrade path.
+    existing = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("checkpoint")}
+    if "agent_state" not in existing:
+        op.add_column(
+            "checkpoint",
+            sa.Column("agent_state", sa.JSON(), nullable=False, server_default=sa.text("'{}'")),
+        )
+    if "agent_state_schema_version" not in existing:
+        op.add_column(
+            "checkpoint",
+            sa.Column(
+                "agent_state_schema_version",
+                sa.String(64),
+                nullable=False,
+                server_default=sa.text("'pi-agent-core/v1'"),
+            ),
+        )
 
 
 def downgrade() -> None:

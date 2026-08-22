@@ -15,62 +15,129 @@
     "images": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["controlPlane", "runtime"],
+      "required": [
+        "controlPlane",
+        "runtime"
+      ],
       "properties": {
-        "controlPlane": { "$ref": "#/$defs/image" },
-        "runtime": { "$ref": "#/$defs/image" }
+        "controlPlane": {
+          "$ref": "#/$defs/image"
+        },
+        "runtime": {
+          "$ref": "#/$defs/image"
+        }
       }
     },
     "controlPlane": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["replicas", "apiPort", "kubernetesApiCidr", "dependencyEgressCidr"],
+      "required": [
+        "replicas",
+        "apiPort",
+        "kubernetesApiCidr",
+        "dependencyEgressCidr"
+      ],
       "properties": {
-        "replicas": { "const": 3 },
-        "apiPort": { "const": 8080 },
-        "kubernetesApiCidr": { "type": "string", "pattern": "^[0-9./:a-fA-F]+$" },
-        "dependencyEgressCidr": { "type": "string", "pattern": "^[0-9./:a-fA-F]+$" }
+        "replicas": {
+          "default": 3
+        },
+        "apiPort": {
+          "const": 8080
+        },
+        "kubernetesApiCidr": {
+          "type": "string",
+          "pattern": "^[0-9./:a-fA-F]+$"
+        },
+        "dependencyEgressCidr": {
+          "type": "string",
+          "pattern": "^[0-9./:a-fA-F]+$"
+        },
+        "workersReplicas": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 2
+        }
       }
     },
     "dependencies": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["postgresql", "nats", "s3", "oidc"],
+      "required": [
+        "postgresql",
+        "nats",
+        "s3",
+        "oidc"
+      ],
       "properties": {
         "postgresql": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["endpoint"],
+          "required": [
+            "endpoint"
+          ],
           "properties": {
-            "endpoint": { "type": "string", "pattern": "^postgresql\\+asyncpg://" }
+            "endpoint": {
+              "type": "string",
+              "pattern": "^postgresql\\+asyncpg://"
+            }
           }
         },
         "nats": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["endpoint", "monitoringEndpoint", "stream", "streamReplicas"],
+          "required": [
+            "endpoint",
+            "monitoringEndpoint",
+            "stream",
+            "streamReplicas"
+          ],
           "properties": {
-            "endpoint": { "type": "string", "pattern": "^(nats|tls)://" },
-            "monitoringEndpoint": { "type": "string", "pattern": "^https?://" },
-            "stream": { "type": "string", "minLength": 1 },
-            "streamReplicas": { "const": 3 }
+            "endpoint": {
+              "type": "string",
+              "pattern": "^(nats|tls)://"
+            },
+            "monitoringEndpoint": {
+              "type": "string",
+              "pattern": "^https?://"
+            },
+            "stream": {
+              "type": "string",
+              "minLength": 1
+            },
+            "streamReplicas": {
+              "const": 3
+            }
           }
         },
         "s3": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["endpoint", "bucket"],
+          "required": [
+            "endpoint",
+            "bucket"
+          ],
           "properties": {
-            "endpoint": { "type": "string", "pattern": "^https?://" },
-            "bucket": { "type": "string", "minLength": 3 }
+            "endpoint": {
+              "type": "string",
+              "pattern": "^https?://"
+            },
+            "bucket": {
+              "type": "string",
+              "minLength": 3
+            }
           }
         },
         "oidc": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["issuer"],
+          "required": [
+            "issuer"
+          ],
           "properties": {
-            "issuer": { "type": "string", "pattern": "^https?://" }
+            "issuer": {
+              "type": "string",
+              "pattern": "^https?://"
+            }
           }
         }
       }
@@ -78,42 +145,103 @@
     "secrets": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["externalSecretName", "storeRefName", "storeRefKind", "remoteKey"],
+      "required": [
+        "externalSecretName",
+        "storeRefName",
+        "storeRefKind",
+        "remoteKey"
+      ],
       "properties": {
-        "externalSecretName": { "type": "string", "minLength": 1 },
-        "storeRefName": { "type": "string", "minLength": 1 },
-        "storeRefKind": { "enum": ["SecretStore", "ClusterSecretStore"] },
-        "remoteKey": { "type": "string", "minLength": 1 }
+        "externalSecretName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "storeRefName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "storeRefKind": {
+          "enum": [
+            "SecretStore",
+            "ClusterSecretStore"
+          ]
+        },
+        "remoteKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "externalSecretContract": {
+          "type": "boolean",
+          "default": true
+        }
       }
     },
     "integration": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["containerFactory", "workerFactory"],
+      "required": [
+        "containerFactory",
+        "workerFactory"
+      ],
       "properties": {
-        "containerFactory": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$" },
-        "workerFactory": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$" }
+        "containerFactory": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "workerFactory": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$"
+        }
       }
     },
     "sandbox": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["namespace", "serviceAccountName", "runtimeClassName", "maxActiveAttempts"],
+      "required": [
+        "namespace",
+        "serviceAccountName",
+        "runtimeClassName",
+        "maxActiveAttempts"
+      ],
       "properties": {
-        "namespace": { "const": "agent-platform-sandbox" },
-        "serviceAccountName": { "const": "agent-platform-sandbox" },
-        "runtimeClassName": { "type": "string" },
-        "maxActiveAttempts": { "type": "integer", "minimum": 1 }
+        "namespace": {
+          "const": "agent-platform-sandbox"
+        },
+        "serviceAccountName": {
+          "const": "agent-platform-sandbox"
+        },
+        "runtimeClassName": {
+          "type": "string"
+        },
+        "maxActiveAttempts": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     },
     "autoscaling": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["minReplicas", "maxReplicas", "pendingMessagesPerReplica"],
+      "required": [
+        "minReplicas",
+        "maxReplicas",
+        "pendingMessagesPerReplica"
+      ],
       "properties": {
-        "minReplicas": { "const": 2 },
-        "maxReplicas": { "const": 20 },
-        "pendingMessagesPerReplica": { "type": "string", "pattern": "^[1-9][0-9]*$" }
+        "minReplicas": {
+          "default": 2
+        },
+        "maxReplicas": {
+          "default": 20
+        },
+        "pendingMessagesPerReplica": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        }
       }
     }
   },
@@ -121,10 +249,19 @@
     "image": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository", "digest"],
+      "required": [
+        "repository",
+        "digest"
+      ],
       "properties": {
-        "repository": { "type": "string", "minLength": 1 },
-        "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
       }
     }
   }
