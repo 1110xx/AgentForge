@@ -26,6 +26,7 @@ Env contract (aligned with ``deploy/helm/templates/workers.yaml``):
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Any
@@ -36,6 +37,7 @@ from enterprise_agent_platform.execution.job_spec import AttemptJobRequest
 from enterprise_agent_platform.execution.orchestrator import KubernetesOrchestrator
 from enterprise_agent_platform.execution.scheduler_service import SchedulerService
 from enterprise_agent_platform.persistence.protocol import PlatformStore
+from enterprise_agent_platform.platform.relay import create_relay_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -304,8 +306,9 @@ def create_k8s_worker_scheduler(
 async def run_worker() -> None:
     """Entry factory for ``AGENT_PLATFORM_WORKER_FACTORY`` (must be awaitable).
 
-    Runs the scheduler loop until cancelled by the process supervisor
-    (asyncio.run cancels the main task on SIGINT/SIGTERM).
+    Runs the scheduler loop plus the NATS outbox relay + wake-up consumer
+    (when ``AGENT_PLATFORM_NATS_URL`` is configured) until cancelled by the
+    process supervisor (asyncio.run cancels the main task on SIGINT/SIGTERM).
     """
     scheduler = create_k8s_worker_scheduler()
     logger.info(
@@ -313,7 +316,19 @@ async def run_worker() -> None:
         scheduler.worker_id,
         scheduler.poll_interval,
     )
-    await scheduler.run_loop()
+    services = create_relay_from_env(scheduler.store, wake=scheduler.wake)
+    tasks = [asyncio.create_task(scheduler.run_loop())]
+    if services is not None:
+        tasks.append(asyncio.create_task(services.relay.run_loop()))
+        tasks.append(asyncio.create_task(services.consumer.consume_loop()))
+        logger.info("NATS relay + wake-up consumer enabled")
+    else:
+        logger.info("NATS relay disabled (AGENT_PLATFORM_NATS_URL not set)")
+    try:
+        await asyncio.gather(*tasks)
+    finally:
+        if services is not None:
+            await services.bus.close()
 
 
 __all__ = [

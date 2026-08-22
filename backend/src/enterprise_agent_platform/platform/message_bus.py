@@ -57,8 +57,14 @@ REFERENCE_FIELDS = frozenset({
     "aggregate_version",
 })
 
-_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9.:/-]{0,254}$")
-_TOPIC = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]{0,254}$")
+# Platform identifiers (run_<id>, unit_<id>, outbox_<id>, ...) include
+# underscores; NATS accepts them in subjects, consumer and stream names.
+_IDENTIFIER = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.:/-]{0,254}$")
+# NATS stream names allow letters, digits, underscores, dots, dashes
+# (max 32 chars on the server). The deployment contract uses e.g.
+# AGENT_PLATFORM, which the narrower identifier pattern would reject.
+_STREAM = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,254}$")
+_TOPIC = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,254}$")
 _SCHEMA = re.compile(r"[a-z][a-z0-9._-]*/v[0-9]+(?:\.[0-9]+){0,2}$")
 _TRACEPARENT = re.compile(
     r"(?P<version>[0-9a-f]{2})-(?P<trace>[0-9a-f]{32})-"
@@ -297,7 +303,8 @@ class NatsJetStreamBus:
     ) -> None:
         if not servers or any(not server.startswith(("nats://", "tls://")) for server in servers):
             raise ValueError("NATS servers are invalid")
-        _required_identifier("stream", stream)
+        if not isinstance(stream, str) or not _STREAM.fullmatch(stream):
+            raise ValueError("stream must be a stable NATS stream name")
         if not subjects:
             raise ValueError("NATS stream requires subjects")
         if not 1 <= replicas <= 5:

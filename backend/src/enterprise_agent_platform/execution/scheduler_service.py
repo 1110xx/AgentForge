@@ -24,9 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import timedelta
 
-from enterprise_agent_platform.control.context import RequestContext
 from enterprise_agent_platform.control.scheduler import FairScheduler
 from enterprise_agent_platform.control.service import ControlPlaneService
 from enterprise_agent_platform.domain.records import DispatchTicket
@@ -61,6 +59,7 @@ class SchedulerService:
     _runtime: object = field(init=False, repr=False)
     _task: asyncio.Task | None = field(default=None, init=False, repr=False)
     _active_tickets: set[str] = field(default_factory=set, init=False, repr=False)
+    _wake_event: asyncio.Event = field(default_factory=asyncio.Event, init=False, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, '_scheduler', FairScheduler(self.store, self.control))
@@ -77,6 +76,7 @@ class SchedulerService:
 
     async def run_loop(self) -> None:
         """Run the scheduling loop until cancelled."""
+        object.__setattr__(self, "_task", asyncio.current_task())
         logger.info(
             "SchedulerService started (worker=%s, poll_interval=%.1fs)",
             self.worker_id,
@@ -85,9 +85,29 @@ class SchedulerService:
         try:
             while True:
                 await self._tick()
-                await asyncio.sleep(self.poll_interval)
+                # Sleep for the poll interval unless a wake-up delivery (NATS
+                # inbox) signals that new work may exist — claim immediately
+                # instead of waiting out the full poll cycle.
+                try:
+                    await asyncio.wait_for(
+                        self._wake_event.wait(), timeout=self.poll_interval
+                    )
+                except TimeoutError:
+                    pass
+                finally:
+                    self._wake_event.clear()
         except asyncio.CancelledError:
             logger.info("SchedulerService stopped")
+
+    def wake(self) -> None:
+        """Signal that new work may be schedulable (e.g. a NATS wake-up message).
+
+        Safe to call from another coroutine or thread: ``set`` only marks the
+        event; admission still happens through the poll + CAS claim so a stray
+        wake is harmless.
+        """
+        if self._task is None or not self._task.done():
+            self._wake_event.set()
 
     async def _tick(self) -> None:
         """One scheduling tick: claim at most one piece of work."""

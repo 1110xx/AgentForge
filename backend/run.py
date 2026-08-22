@@ -50,6 +50,7 @@ from enterprise_agent_platform.integration.host import (
 from enterprise_agent_platform.persistence import InMemoryPlatformStore
 from enterprise_agent_platform.platform.config_reader import ConfigReader
 from enterprise_agent_platform.platform.provider_factory import ProviderFactory
+from enterprise_agent_platform.platform.relay import RelayServices, create_relay_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -243,10 +244,25 @@ def main() -> None:
     )
     server = uvicorn.Server(config)
 
+    # NATS relay (Phase 3): drain outbox rows to the bus and wake the local
+    # scheduler when new dispatch/approval/lease messages arrive. Enabled only
+    # when AGENT_PLATFORM_NATS_URL is set (docker-compose provides nats:4222).
+    relay_services: RelayServices | None = create_relay_from_env(
+        store, wake=scheduler.wake
+    )
+
     async def startup() -> None:
         """Start scheduler loop and server."""
         scheduler_task = asyncio.create_task(scheduler.run_loop())
         logger.info("Scheduler background loop started")
+
+        relay_tasks: list[asyncio.Task] = []
+        if relay_services is not None:
+            relay_tasks.append(asyncio.create_task(relay_services.relay.run_loop()))
+            relay_tasks.append(
+                asyncio.create_task(relay_services.consumer.consume_loop())
+            )
+            logger.info("NATS relay + wake-up consumer started")
 
         # Try to register signal handlers for graceful shutdown.
         # On Windows, add_signal_handler may raise NotImplementedError.
@@ -262,10 +278,14 @@ def main() -> None:
 
         await server.serve()
         scheduler_task.cancel()
+        for task in relay_tasks:
+            task.cancel()
         try:
-            await scheduler_task
+            await asyncio.gather(scheduler_task, *relay_tasks)
         except asyncio.CancelledError:
             pass
+        if relay_services is not None:
+            await relay_services.bus.close()
 
     async def _shutdown(
         server: uvicorn.Server,

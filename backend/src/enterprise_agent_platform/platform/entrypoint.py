@@ -61,9 +61,28 @@ async def _run_worker() -> None:
     await cast(Awaitable[object], result)
 
 
+async def _run_relay() -> None:
+    """Standalone NATS outbox relay (no local scheduler).
+
+    Drains PENDING outbox rows to the bus so other replicas can wake their
+    schedulers. Useful as a dedicated sidecar next to the control-plane API
+    (which writes outbox rows but may not host a scheduler).
+    """
+    from enterprise_agent_platform.execution.k8s_worker import create_worker_store
+    from enterprise_agent_platform.platform.relay import create_relay_from_env
+
+    store = create_worker_store()
+    services = create_relay_from_env(store)
+    if services is None:
+        raise RuntimeError(
+            "AGENT_PLATFORM_NATS_URL is required for the relay mode"
+        )
+    await services.run_forever()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Enterprise Agent Platform process")
-    parser.add_argument("mode", choices=("api", "worker"))
+    parser.add_argument("mode", choices=("api", "worker", "relay"))
     args = parser.parse_args(argv)
     if args.mode == "api":
         import uvicorn
@@ -76,6 +95,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             proxy_headers=False,
             server_header=False,
         )
+    elif args.mode == "relay":
+        asyncio.run(_run_relay())
     else:
         asyncio.run(_run_worker())
     return 0

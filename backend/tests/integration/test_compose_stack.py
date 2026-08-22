@@ -273,6 +273,97 @@ def test_nats_reachable() -> None:
     _run(ping())
 
 
+def test_nats_outbox_relay_to_inbox_round_trip() -> None:
+    """Real relay chain on the L2 stack: publish → JetStream → pull → Inbox.
+
+    This is the wiring asserted in SDD §13.1 (NATS Outbox Relay); the component
+    tests prove the loop/callback logic in-process, this gate proves the NATS
+    transport itself (durable stream, explicit ack, transactional Inbox dedup
+    against real PostgreSQL).
+    """
+
+    url = _env("AGENT_PLATFORM_L2_NATS_URL")
+    if not url:
+        pytest.skip("AGENT_PLATFORM_L2_NATS_URL is not set (L2 stack not running)")
+    database_url = _database_url()
+
+    async def scenario() -> None:
+        from uuid import uuid4
+
+        from enterprise_agent_platform.platform.message_bus import (
+            InboxConsumer,
+            MessageEnvelope,
+        )
+        from enterprise_agent_platform.platform.relay import (
+            WAKE_UP_SUBJECTS,
+            create_nats_message_bus,
+        )
+
+        engine = create_async_engine(database_url)
+        try:
+            store = SqlAlchemyPlatformStore(
+                async_sessionmaker(engine, expire_on_commit=False)
+            )
+            bus = create_nats_message_bus(
+                servers=(url,),
+                stream="AGENT_PLATFORM",
+                subjects=("agent.>",),
+                replicas=1,
+            )
+            try:
+                # ── publish exactly the envelope the OutboxPublisher would ──
+                envelope = MessageEnvelope(
+                    message_id=f"l2-relay-{uuid4().hex}",
+                    tenant_id="reference-local",
+                    topic="agent.dispatch.requested",
+                    schema_version="platform-message/v1",
+                    payload_schema="dispatch.requested/v1",
+                    references={"run_id": "run_l2_relay_gate", "aggregate_version": 1},
+                )
+                await bus.publish(envelope)
+
+                # ── consumer side: pull + transactional Inbox dedup ──
+                delivery = await bus.pull(
+                    "agent.dispatch.requested",
+                    consumer=f"l2-gate-{uuid4().hex}",
+                    timeout=10.0,
+                )
+                assert delivery is not None, "message must arrive from JetStream"
+                assert delivery.envelope.message_id == envelope.message_id
+
+                applied: list[str] = []
+
+                async def handler(tx, message: MessageEnvelope) -> None:
+                    del tx
+                    applied.append(message.message_id)
+
+                inbox = InboxConsumer(store=store, handler_version="l2-gate/v1")
+                processed = await inbox.consume(delivery, handler)
+                assert processed
+                assert applied == [envelope.message_id]
+
+                # ── durability: the Inbox marker landed in PostgreSQL ──
+                fresh = SqlAlchemyPlatformStore(
+                    async_sessionmaker(engine, expire_on_commit=False)
+                )
+                record = await fresh.get_inbox_message(
+                    envelope.tenant_id,
+                    envelope.message_id,
+                    "l2-gate/v1",
+                )
+                assert record.processing_state == "PROCESSED"
+
+                # ── wake-up subjects match the relay contract ──
+                assert "dispatch.requested" in WAKE_UP_SUBJECTS
+                assert "attempt.provisioning.requested" in WAKE_UP_SUBJECTS
+            finally:
+                await bus.close()
+        finally:
+            await engine.dispose()
+
+    _run(scenario())
+
+
 def test_minio_versioned_bucket_exists() -> None:
     endpoint = _env("AGENT_PLATFORM_L2_S3_ENDPOINT") or "http://minio:9000"
     access_key = (
