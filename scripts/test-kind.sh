@@ -68,7 +68,12 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 
-kind create cluster --name "$cluster_name" --config "$root_dir/deploy/kind/cluster.yaml"
+if ! kind get clusters 2>/dev/null | grep -qx "$cluster_name"; then
+  kind create cluster --name "$cluster_name" --config "$root_dir/deploy/kind/cluster.yaml"
+else
+  echo "Kind cluster already exists: $cluster_name (reusing)"
+fi
+kubectl config use-context "kind-$cluster_name" >/dev/null 2>&1 || true
 
 # 等待所有节点容器完全就绪（避免 worker 容器尚未就绪导致 load 失败）
 sleep 15
@@ -123,6 +128,11 @@ helm template agent-platform "$root_dir/deploy/helm" \
   --set-string "secrets.externalSecretName=agent-platform-kind-dependencies" \
   >"$rendered_chart"
 
+# The helm migrate Job is immutable once created; re-applying it against a
+# reused cluster with a fresh digest fails ("field is immutable"). Delete it
+# first, mirroring the dependency bootstrap's delete-then-recreate pattern.
+kubectl -n agent-platform-control delete job agent-platform-migrate \
+  --ignore-not-found --wait=true
 kubectl apply -f "$rendered_chart"
 
 # Kind gate network-policy patch: Calico enforces egress by post-DNAT

@@ -337,7 +337,9 @@ class NatsJetStreamBus:
                     name=self._stream,
                     subjects=list(self._subjects),
                     storage="file",
-                    replicas=self._replicas,
+                    # nats-py StreamConfig field is num_replicas, not replicas
+                    # (add_stream passes kwargs through dataclasses.replace).
+                    num_replicas=self._replicas,
                 )
             self._connection = connection
             self._jetstream = jetstream

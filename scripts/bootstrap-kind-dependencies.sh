@@ -50,16 +50,32 @@ kubectl label namespace "$control_namespace" \
 kubectl label namespace "$sandbox_namespace" \
   agent.platform/plane=sandbox pod-security.kubernetes.io/enforce=restricted --overwrite
 
-postgres_value="$(openssl rand -hex 24)"
-minio_value="$(openssl rand -hex 24)"
+# Reuse the existing secret's credentials when present: the Postgres/one-shot
+# init runs only on first boot (emptyDir), so overwriting the secret with fresh
+# random values on a re-run would make every dependent (migrate, api,
+# orchestrator) fail password auth against the already-initialized data dir.
+if kubectl -n "$dependency_namespace" get secret agent-platform-kind-dependencies \
+  >/dev/null 2>&1; then
+  postgres_value="$(kubectl -n "$dependency_namespace" get secret agent-platform-kind-dependencies \
+    -o jsonpath='{.data.postgres-value}' | base64 -d)"
+  minio_value="$(kubectl -n "$dependency_namespace" get secret agent-platform-kind-dependencies \
+    -o jsonpath='{.data.minio-value}' | base64 -d)"
+else
+  postgres_value="$(openssl rand -hex 24)"
+  minio_value="$(openssl rand -hex 24)"
+fi
 database_url="postgresql+asyncpg://agent_platform:${postgres_value}@postgres.${dependency_namespace}.svc:5432/agent_platform"
 
+# The Kind NATS is a single node (statefulset replicas=1); JetStream rejects
+# replicas>1 in non-clustered mode, so pin R1 here while production values
+# default to R3.
 kubectl -n "$dependency_namespace" create secret generic agent-platform-kind-dependencies \
   --from-literal=postgres-value="$postgres_value" \
   --from-literal=minio-value="$minio_value" \
   --from-literal=AGENT_PLATFORM_DATABASE_URL="$database_url" \
   --from-literal=AGENT_PLATFORM_NATS_URL="nats://nats.${dependency_namespace}.svc:4222" \
   --from-literal=AGENT_PLATFORM_NATS_STREAM=AGENT_PLATFORM \
+  --from-literal=AGENT_PLATFORM_NATS_STREAM_REPLICAS=1 \
   --from-literal=AGENT_PLATFORM_S3_ENDPOINT="http://minio.${dependency_namespace}.svc:9000" \
   --from-literal=AGENT_PLATFORM_S3_BUCKET=agent-artifacts \
   --from-literal=AGENT_PLATFORM_S3_ACCESS_KEY_ID=agent_platform \
@@ -73,6 +89,7 @@ kubectl -n "$control_namespace" create secret generic agent-platform-kind-depend
   --from-literal=AGENT_PLATFORM_DATABASE_URL="$database_url" \
   --from-literal=AGENT_PLATFORM_NATS_URL="nats://nats.${dependency_namespace}.svc:4222" \
   --from-literal=AGENT_PLATFORM_NATS_STREAM=AGENT_PLATFORM \
+  --from-literal=AGENT_PLATFORM_NATS_STREAM_REPLICAS=1 \
   --from-literal=AGENT_PLATFORM_S3_ENDPOINT="http://minio.${dependency_namespace}.svc:9000" \
   --from-literal=AGENT_PLATFORM_S3_BUCKET=agent-artifacts \
   --from-literal=AGENT_PLATFORM_S3_ACCESS_KEY_ID=agent_platform \

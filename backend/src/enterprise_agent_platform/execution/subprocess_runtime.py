@@ -66,6 +66,7 @@ from enterprise_agent_platform.execution.pipe_transport import (
     PipeError,
 )
 from enterprise_agent_platform.execution.runtime import (
+    _coerce_stop_reason,
     AgentRuntime,
     BootstrapGrant,
     RuntimeCheckpoint,
@@ -395,7 +396,12 @@ def _emit_response_events(
             ))
 
     # Done
-    stop_reason = response.get("stop_reason", "stop")
+    # The PipeStream parent answers with the pi-agent enum
+    # ("end_turn"/"tool_use"/"max_tokens"); the Internal API StreamDoneEvent
+    # contract uses the proxy-style values ("stop"/"toolUse"/"length"), so
+    # coerce before emitting — same mapping runtime._coerce_stop_reason uses
+    # for restore hydration.
+    stop_reason = _coerce_stop_reason(response.get("stop_reason", "stop"))
     partial.stop_reason = stop_reason
     usage_data = response.get("usage", {})
     cost_data = usage_data.get("cost", {})

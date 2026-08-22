@@ -409,6 +409,11 @@ class SubprocessOrchestrator:
                     updated_at=now,
                 )
                 await tx.replace_attempt_cas(checkpointing, current.version)
+            elif current.status is AttemptState.CHECKPOINTING:
+                # Already fenced by an earlier turn-level checkpoint; a final
+                # snapshot commits without re-transitioning (the Attempt stays
+                # CHECKPOINTING until ``complete_run`` terminalizes it).
+                pass
             else:
                 raise PlatformError(
                     "INVALID_STATE",

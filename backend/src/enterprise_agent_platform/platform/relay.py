@@ -70,7 +70,19 @@ class OutboxRelay:
         backoff = self.poll_interval
         try:
             while True:
-                batch = await self.publisher.run_once(limit=self.limit)
+                try:
+                    batch = await self.publisher.run_once(limit=self.limit)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    # The relay is a side path: NATS being temporarily down
+                    # must not take down the scheduler sharing this loop.
+                    logger.exception(
+                        "outbox relay transient failure; backing off"
+                    )
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, self.backoff_max_seconds)
+                    continue
                 if batch.selected:
                     logger.info(
                         "relay drained outbox: selected=%d published=%d deferred=%d failed=%d",
@@ -135,23 +147,37 @@ class WakeupConsumer:
         inbox = InboxConsumer(store=self.store, handler_version=self.handler_version)
         try:
             while True:
-                for subject in self.subjects:
-                    delivery = await self.bus.pull(
-                        subject, consumer=self.consumer_name, timeout=self.pull_timeout
-                    )
-                    if delivery is None:
-                        continue
-                    try:
-                        processed = await inbox.consume(delivery, self._handler)
-                    except Exception:
-                        logger.exception("wake-up consumer failed for %s", subject)
-                        continue
-                    if processed:
-                        logger.info(
-                            "wake-up applied: topic=%s message=%s",
+                try:
+                    for subject in self.subjects:
+                        delivery = await self.bus.pull(
                             subject,
-                            delivery.envelope.message_id,
+                            consumer=self.consumer_name,
+                            timeout=self.pull_timeout,
                         )
+                        if delivery is None:
+                            continue
+                        try:
+                            processed = await inbox.consume(delivery, self._handler)
+                        except Exception:
+                            logger.exception(
+                                "wake-up consumer failed for %s", subject
+                            )
+                            continue
+                        if processed:
+                            logger.info(
+                                "wake-up applied: topic=%s message=%s",
+                                subject,
+                                delivery.envelope.message_id,
+                            )
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    # The consumer is a side path: a transport hiccup must not
+                    # take down the scheduler sharing this loop.
+                    logger.exception(
+                        "wake-up consumer transient failure; backing off"
+                    )
+                    await asyncio.sleep(self.pull_timeout)
         except asyncio.CancelledError:
             logger.info("wake-up consumer stopped")
 
