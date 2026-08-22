@@ -19,3 +19,9 @@
 - SafeFallback：未知组件显示克制的不可执行提示，不动态加载代码。
 
 覆盖 loading、empty、error、unknown component、submitting、disabled、stale surface 和 narrow layout。禁止 dangerouslySetInnerHTML、任意组件名动态导入和浏览器直连 Sandbox。
+
+## AgentLauncher（Phase 3.6 前端入口）
+
+- 宿主级自由对话浮窗：右下角折叠 pill ↔ 展开面板（消息列表 + 输入框 + Send），不经 server catalog 渲染（与 A2UI Surface 文档无关）。
+- 每条消息经 `POST /v1/chat` 创建 Run（SDK `chat()`）；消息原文保留为 Run intent；`onRunCreated` 回传宿主绑定 AgentPanel。
+- 样式沿用 EAP_THEME tokens（`position: fixed`），不引入 UI 框架；空白消息不发；每条消息独立 Idempotency-Key。

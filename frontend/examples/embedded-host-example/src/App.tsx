@@ -5,6 +5,7 @@ import {
   type AgentPlatformClientOptions,
 } from "@platform/agent-ui-client";
 import {
+  AgentLauncher,
   AgentPanel,
   AgentPlatformProvider,
   type HostBridgeCapabilities,
@@ -63,6 +64,13 @@ const statusLine: CSSProperties = {
   color: "#475569",
   fontSize: "12px",
   wordBreak: "break-all",
+};
+
+const summaryStyle: CSSProperties = {
+  cursor: "pointer",
+  fontWeight: 600,
+  color: "#2563eb",
+  marginBottom: "12px",
 };
 
 export function App() {
@@ -158,46 +166,51 @@ export function App() {
             Live (backend)
           </button>
         </div>
-        <form onSubmit={(event) => void createRun(event)}>
-          <div style={fieldStyle}>
-            <label htmlFor="intent" style={{ minWidth: "90px" }}>
-              intent
-            </label>
-            <input
-              id="intent"
-              style={inputStyle}
-              value={intent}
-              onChange={(event) => setIntent(event.target.value)}
-            />
-          </div>
-          <div style={fieldStyle}>
-            <label htmlFor="resource" style={{ minWidth: "90px" }}>
-              resource_ref
-            </label>
-            <input
-              id="resource"
-              style={inputStyle}
-              value={resourceRef}
-              onChange={(event) => setResourceRef(event.target.value)}
-            />
-          </div>
-          {mode === "live" ? (
+        <details>
+          <summary style={summaryStyle}>
+            Advanced: create run manually
+          </summary>
+          <form onSubmit={(event) => void createRun(event)}>
             <div style={fieldStyle}>
-              <label htmlFor="token" style={{ minWidth: "90px" }}>
-                token
+              <label htmlFor="intent" style={{ minWidth: "90px" }}>
+                intent
               </label>
               <input
-                id="token"
+                id="intent"
                 style={inputStyle}
-                value={liveToken}
-                onChange={(event) => setLiveToken(event.target.value)}
+                value={intent}
+                onChange={(event) => setIntent(event.target.value)}
               />
             </div>
-          ) : null}
-          <button type="submit" disabled={busy} style={buttonStyle}>
-            {busy ? "Creating…" : "Create run"}
-          </button>
-        </form>
+            <div style={fieldStyle}>
+              <label htmlFor="resource" style={{ minWidth: "90px" }}>
+                resource_ref
+              </label>
+              <input
+                id="resource"
+                style={inputStyle}
+                value={resourceRef}
+                onChange={(event) => setResourceRef(event.target.value)}
+              />
+            </div>
+            {mode === "live" ? (
+              <div style={fieldStyle}>
+                <label htmlFor="token" style={{ minWidth: "90px" }}>
+                  token
+                </label>
+                <input
+                  id="token"
+                  style={inputStyle}
+                  value={liveToken}
+                  onChange={(event) => setLiveToken(event.target.value)}
+                />
+              </div>
+            ) : null}
+            <button type="submit" disabled={busy} style={buttonStyle}>
+              {busy ? "Creating…" : "Create run"}
+            </button>
+          </form>
+        </details>
         {error !== null ? (
           <div style={{ ...statusLine, color: "#dc2626" }}>{error}</div>
         ) : null}
@@ -220,13 +233,14 @@ export function App() {
       <AgentPlatformProvider client={client} hostBridge={hostBridge}>
         {runId === null ? (
           <div style={{ ...cardStyle, color: "#475569" }}>
-            Create a run to embed the AgentPanel. In demo mode the mock replays
-            the full reference workflow (progress → evidence → artifact →
-            approval → effect → succeeded).
+            使用右下角 💬 Agent 浮窗发起自由对话，或用上方高级选项手动创建
+            Run。Demo 模式下 mock 会回放完整参考工作流（progress → evidence
+            → artifact → approval → effect → succeeded）。
           </div>
         ) : (
           <AgentPanel runId={runId} />
         )}
+        <AgentLauncher onRunCreated={setRunId} />
       </AgentPlatformProvider>
     </div>
   );

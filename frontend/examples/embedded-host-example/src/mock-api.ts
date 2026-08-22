@@ -282,6 +282,42 @@ export function createMockFetch(): typeof fetch {
       return jsonResponse(201, snapshot(state, 1, "QUEUED"));
     }
 
+    if (
+      method === "POST" &&
+      parts[0] === "v1" &&
+      parts[1] === "chat" &&
+      parts.length === 2
+    ) {
+      // Phase 3.6 frontend launcher: mirror of POST /v1/chat on the real
+      // backend (contract shapes identical, including the Location header).
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        message?: string;
+        workflow_hint?: string;
+      };
+      const message = (body.message ?? "").trim();
+      if (!message) {
+        return apiError(
+          "REQUEST_VALIDATION_FAILED",
+          "message cannot be blank",
+          422,
+        );
+      }
+      // Demo intent mapping: only synthetic-analysis is registered, so hints
+      // and any message both land there (back end classify_intent MVP
+      // fallback within the demo scope).
+      const state: MockRunState = {
+        runId: `run-demo-${runs.size + 1}`,
+        workflowType: body.workflow_hint?.trim() || "synthetic-analysis",
+        intent: message,
+        version: 1,
+        approved: false,
+      };
+      runs.set(state.runId, state);
+      const response = jsonResponse(201, snapshot(state, 1, "QUEUED"));
+      response.headers.set("Location", `/v1/runs/${state.runId}`);
+      return response;
+    }
+
     const state = runs.get(runId);
     if (state === undefined) {
       return apiError("NOT_FOUND", "run was not found", 404);

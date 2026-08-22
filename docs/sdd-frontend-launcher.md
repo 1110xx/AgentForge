@@ -229,10 +229,12 @@ steps: checkout → setup-node(v22) + npm ci → npm run lint → npm run test �
 - 文件：`agent-ui-protocol`（ChatCommand + 导出）、`agent-ui-client`（`chat()` + fixture 测试）、`agent-ui-react`（`AgentLauncher`/`useAgentChat` + vitest）
 - 验收：新增单测全过；现有 7 文件全绿；`npm run build` 过。
 
-### Phase F-C：示例重建 + mock 同步
+### Phase F-C：示例重建 + mock 同步 ✅ 已完成（2026-08-23）
 
-- 文件：`embedded-host-example/src/App.tsx` / `mock-api.ts`（`v1/chat` 分支）、`frontend/DESIGN.md`（如需补 Launcher 约束）
-- 验收：demo 模式浮窗可发起→面板全流程；live 模式经 dev proxy 连真实后端跑通。
+- 交付：`embedded-host-example/src/App.tsx` 以 AgentLauncher 为入口重建（手动创建表单收进 `Advanced: create run manually` 折叠区，保留 demo/live 切换 + live token 输入；空态提示引导浮窗发起）；`mock-api.ts` 增 `POST /v1/chat` 分支（空白 422 + 201 snapshot + **Location header** 契约对齐真实后端；workflow_hint/兜底 synthetic-analysis）；`frontend/DESIGN.md` 补 AgentLauncher 设计约束（宿主级浮窗、不经 server catalog、样式/幂等规则）。
+- 测试：`embedded-host-example/src/mock-api.test.ts` +4（创建保留 intent + Location / workflow_hint / 空白 422 / 创建后 Run 全流程：snapshot→action→followup answer）——demo 模式闭环脚本化；前端全量 **107 passed (was 103)**。
+- 联调：新增 `scripts/verify-frontend-live.sh`（无 docker 静态门）——起 uvicorn reference local stack（或探测已在线后端）+ vite dev，验证：直连 `/v1/chat` 201+snapshot / 幂等重放同 run / 空白 422 / vite dev proxy 201（SSE 反缓冲路径）；本地实测 **4/4 全绿**。联调注意：Windows 控制台 curl 传中文参数会转码失败（400），脚本消息统一 ASCII（中文意图覆盖在 pytest/前端单测）。
+- 脚本运行时产物（`.verify-live-*.log/.json`）不入库。
 
 ### Phase F-D：正式应用层（CI + Helm + 联调）
 
