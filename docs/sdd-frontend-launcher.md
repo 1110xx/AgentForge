@@ -244,10 +244,10 @@ steps: checkout → setup-node(v22) + npm ci → npm run lint → npm run test �
   - `scripts/check-k8s.sh` 第四 profile `render_frontend`（kind values + frontend.enabled + ingress/TLS）及 Python 断言：frontend+api 双 Deployment、ConfigMap `proxy_buffering off`、Ingress SSE annotation + 根路径。
 - 验收：check-k8s 四 profile 全绿（frontend.yaml 33 manifests：ConfigMap/Deployment/Ingress/Service…）；lint 默认+kind 过（schema 强校验）；live 联调脚本此前 4/4 已绿。前端镜像（nginx+dist）不在本仓库构建，由宿主 CI/CD 注入 `images.frontend.*`（镜像契约与迁移 Job 一致）。
 
-### Phase F-E：收尾
+### Phase F-E：收尾 ✅ 已完成（2026-08-23）
 
-- 文件：`SDD.md`（§13.1 缺口关闭 + Phase 3.6 条目 + 总结段）、`MEMORY.md`（轮次记录）、`docs/DOCS.md`（索引本文档）
-- 验收：文档一致；三扇门全绿。
+- 交付：`SDD.md` §13.1「前端入口」缺口行关闭（~~前端入口~~ ✅）+ Phase 3.6 条目 F-A..F-E 全部 `[x]` + 总结段补 Phase 3.6 交付记录；`docs/DOCS.md` 索引补齐（followup/dual-mode/launcher 三份 SDD）；`MEMORY.md` 记录本轮（上一轮 F-A/F-B，本轮 F-C/F-D/F-E）。
+- 验收：文档一致；**三扇门全绿** —— 后端 pytest 66 passed + 8 skipped（含 `/v1/chat` 9 用例）、前端 vitest 107 passed（8 文件含 mock 闭环 4）+ lint/typecheck/build 过、`check-k8s.sh` 四 profile 绿（第 4 profile frontend 断言）。
 
 ---
 
