@@ -797,6 +797,28 @@ export const UiActionCommand = z
   .strict();
 export type UiActionCommand = z.infer<typeof UiActionCommand>;
 
+/**
+ * POST /v1/chat 请求体（自由对话入口，Phase 3.6 前端 Launcher）
+ *
+ * Mirrors backend ``ChatCommand`` in contracts/commands.py. The backend parses
+ * the message into an intent and creates a Run through the same semantics as
+ * POST /runs; ``workflow_hint`` is the explicit escape hatch, and the default
+ * ``resource_refs`` mirrors the backend default (reference resolver prefix).
+ */
+export const ChatCommand = z
+  .object({
+    message: z.string().min(1).max(2_000),
+    resource_refs: z.array(z.string()).min(1).default(["synthetic-case:demo"]),
+    workflow_hint: z.string().nullable().optional(),
+    host_context_ref: z.string().nullable().optional(),
+  })
+  .strict()
+  .refine(
+    (command) => command.message.trim().length > 0,
+    { message: "message cannot be blank", path: ["message"] },
+  );
+export type ChatCommand = z.infer<typeof ChatCommand>;
+
 /* ------------------------------------------------------------------ */
 /* Followup (mirrors contracts/commands.py, contracts/models.py)       */
 /* ------------------------------------------------------------------ */

@@ -56,6 +56,13 @@ export {
   useFollowupHistory,
   type FollowupEntry,
 } from "./use-followup-history.js";
+export {
+  useAgentChat,
+  type ChatEntry,
+  type ChatEntryStatus,
+  type SendChatOptions,
+} from "./use-chat.js";
+export { AgentLauncher, type AgentLauncherProps } from "./launcher.js";
 
 /* ------------------------------------------------------------------ */
 /* Provider                                                            */

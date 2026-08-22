@@ -242,3 +242,66 @@ describe("AgentPlatformClient SSE stream", () => {
     }).rejects.toMatchObject({ code: "RESYNC_REQUIRED" });
   });
 });
+
+describe("AgentPlatformClient chat (Phase 3.6 frontend launcher)", () => {
+  it("POSTs /v1/chat with an Idempotency-Key and parses the snapshot", async () => {
+    const { client, calls } = makeClient(() =>
+      jsonResponse(201, snapshotFixture()),
+    );
+    const snapshot = await client.chat({ message: "分析日志中的故障模式" });
+    expect(snapshot.schema_version).toBe("run-view-snapshot/v1");
+    const call = calls[0];
+    expect(call?.url).toBe("/api/agent-platform/v1/chat");
+    expect(call?.init.method).toBe("POST");
+    const headers = call?.init.headers as Record<string, string>;
+    expect(headers["Idempotency-Key"]).toBeTruthy();
+    expect(headers["Content-Type"]).toBe("application/json");
+    const body = JSON.parse(String(call?.init.body)) as Record<string, unknown>;
+    expect(body["message"]).toBe("分析日志中的故障模式");
+    // zod materializes the default resource refs (mirror of the backend default)
+    expect(body["resource_refs"]).toEqual(["synthetic-case:demo"]);
+    expect(body).not.toHaveProperty("workflow_hint");
+  });
+
+  it("uses the caller-supplied idempotency key verbatim", async () => {
+    const { client, calls } = makeClient(() =>
+      jsonResponse(201, snapshotFixture()),
+    );
+    await client.chat({ message: "hello" }, { idempotencyKey: "chat-stable-1" });
+    const headers = calls[0]?.init.headers as Record<string, string>;
+    expect(headers["Idempotency-Key"]).toBe("chat-stable-1");
+  });
+
+  it("rejects blank messages client-side without sending a request", async () => {
+    const { client, calls } = makeClient(() =>
+      jsonResponse(201, snapshotFixture()),
+    );
+    await expect(client.chat({ message: "   " })).rejects.toBeInstanceOf(
+      AgentPlatformProtocolError,
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it("rejects overlong messages client-side", async () => {
+    const { client, calls } = makeClient(() =>
+      jsonResponse(201, snapshotFixture()),
+    );
+    await expect(
+      client.chat({ message: "a".repeat(2001) }),
+    ).rejects.toBeInstanceOf(AgentPlatformProtocolError);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("maps non-2xx /v1/chat responses to api errors", async () => {
+    const { client } = makeClient(() =>
+      jsonResponse(422, {
+        schema_version: "api-error/v1",
+        code: "REQUEST_VALIDATION_FAILED",
+        message: "message cannot be blank",
+      }),
+    );
+    await expect(client.chat({ message: "hello" })).rejects.toMatchObject({
+      code: "REQUEST_VALIDATION_FAILED",
+    });
+  });
+});

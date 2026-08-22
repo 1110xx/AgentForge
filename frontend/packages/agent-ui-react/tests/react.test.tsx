@@ -14,6 +14,7 @@ import {
 } from "@platform/agent-ui-client";
 import type { RunViewSnapshot } from "@platform/agent-ui-protocol";
 import {
+  AgentLauncher,
   AgentPanel,
   AgentPlatformProvider,
   useAgentPlatform,
@@ -129,6 +130,9 @@ function makeHarness(options: HarnessOptions) {
     }
     if (url.endsWith("/runs/run_demo")) {
       return jsonResponse(200, snapshot());
+    }
+    if (url.endsWith("/v1/chat")) {
+      return jsonResponse(201, snapshot());
     }
     throw new Error(`unhandled url ${url}`);
   };
@@ -257,5 +261,66 @@ describe("ArtifactCard download wiring", () => {
     };
     expect(argument.authorization.authorization_id).toBe("authz_1");
     expect(argument.authorization.download_url).toContain("signed.example");
+  });
+});
+
+describe("AgentLauncher chat entry", () => {
+  it("expands, sends a message via /v1/chat and reports the created run", async () => {
+    const { calls, client, hostBridge } = makeHarness({ surfaceDocument: {} });
+    const onRunCreated = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <AgentPlatformProvider client={client} hostBridge={hostBridge}>
+        <AgentLauncher onRunCreated={onRunCreated} />
+      </AgentPlatformProvider>,
+    );
+    // collapsed by default: pill only, no message input
+    expect(screen.queryByRole("textbox", { name: /chat message/i })).toBeNull();
+    await user.click(screen.getByRole("button", { name: /open agent chat/i }));
+    await user.type(
+      screen.getByRole("textbox", { name: /chat message/i }),
+      "分析日志中的故障模式",
+    );
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() =>
+      expect(calls.some((call) => call.url.endsWith("/v1/chat"))).toBe(true),
+    );
+    await waitFor(() =>
+      expect(onRunCreated).toHaveBeenCalledWith("run_demo"),
+    );
+    await waitFor(() =>
+      expect(screen.getByText("分析日志中的故障模式")).toBeTruthy(),
+    );
+    // entry badge shows the created run id prefix
+    await waitFor(() =>
+      expect(screen.getByText(/run run_demo/)).toBeTruthy(),
+    );
+    // Idempotency-Key header is present (SDK derives it per message)
+    const chatCall = calls.find((call) => call.url.endsWith("/v1/chat"));
+    expect(
+      (chatCall?.init.headers as Record<string, string>)["Idempotency-Key"],
+    ).toBeTruthy();
+  });
+
+  it("does not send blank messages", async () => {
+    const { calls, client, hostBridge } = makeHarness({ surfaceDocument: {} });
+    const onRunCreated = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <AgentPlatformProvider client={client} hostBridge={hostBridge}>
+        <AgentLauncher onRunCreated={onRunCreated} />
+      </AgentPlatformProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: /open agent chat/i }));
+    await user.type(
+      screen.getByRole("textbox", { name: /chat message/i }),
+      "   ",
+    );
+    expect(
+      screen.getByRole("button", { name: "Send" }),
+    ).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    expect(calls.some((call) => call.url.endsWith("/v1/chat"))).toBe(false);
+    expect(onRunCreated).not.toHaveBeenCalled();
   });
 });

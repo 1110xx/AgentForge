@@ -10,6 +10,7 @@
  */
 import type {
   EnterpriseEventEnvelope,
+  ChatCommand as ChatCommandType,
   CreateRunCommand as CreateRunCommandType,
   RunViewSnapshot as RunViewSnapshotType,
   SurfaceRevision as SurfaceRevisionType,
@@ -18,6 +19,7 @@ import type {
 } from "@platform/agent-ui-protocol";
 import {
   ArtifactDownloadAuthorization,
+  ChatCommand,
   CreateRunCommand,
   RunEventPage,
   RunViewSnapshot,
@@ -84,6 +86,10 @@ export interface IdempotentRequestOptions extends RequestOptions {
 
 export interface CreateRunOptions extends IdempotentRequestOptions {
   command: CreateRunCommandType;
+}
+
+export interface ChatOptions extends IdempotentRequestOptions {
+  command: ChatCommandType;
 }
 
 export interface RunEventsOptions extends RequestOptions {
@@ -239,6 +245,36 @@ export class AgentPlatformClient {
       headers: { "Idempotency-Key": key },
       body: parsed,
       parse: (value) => this.parseRunViewSnapshot(value, "createRun"),
+    });
+  }
+
+  /**
+   * POST /v1/chat — free-form conversation entry (Phase 3.6 frontend launcher).
+   *
+   * The backend parses the natural-language message into an intent, creates a
+   * Run through the exact same semantics as POST /runs (same Idempotency-Key
+   * handling, authorization and parameter-model guards), and returns the
+   * run-view-snapshot/v1 of the created Run. Follow-up questions continue
+   * through the existing followup chain (submitFollowup).
+   */
+  async chat(
+    command: ChatCommandType,
+    options: IdempotentRequestOptions = {},
+  ): Promise<RunViewSnapshotType> {
+    const key = options.idempotencyKey ?? createIdempotencyKey("chat");
+    let parsed: ChatCommandType;
+    try {
+      parsed = ChatCommand.parse(command); // client-side contract check
+    } catch {
+      throw new AgentPlatformProtocolError(
+        "chat command did not satisfy the contract",
+      );
+    }
+    return this.request<RunViewSnapshotType>("POST", "/v1/chat", {
+      signal: options.signal,
+      headers: { "Idempotency-Key": key },
+      body: parsed,
+      parse: (value) => this.parseRunViewSnapshot(value, "chat"),
     });
   }
 

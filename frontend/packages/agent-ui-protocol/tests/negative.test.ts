@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  ChatCommand,
   CreateRunCommand,
   EnterpriseEventEnvelope,
   EventPayload,
@@ -36,6 +37,52 @@ function expectFail(schema: { safeParse: (input: unknown) => { success: boolean 
   const result = schema.safeParse(input);
   expect(result.success, `${label}: expected failure`).toBe(false);
 }
+
+describe("ChatCommand contract", () => {
+  it("accepts a message and applies the default resource refs", () => {
+    const parsed = ChatCommand.parse({ message: "分析日志中的故障模式" });
+    expect(parsed.message).toBe("分析日志中的故障模式");
+    expect(parsed.resource_refs).toEqual(["synthetic-case:demo"]);
+    expect(parsed.workflow_hint).toBeUndefined();
+    expect(parsed.host_context_ref).toBeUndefined();
+  });
+
+  it("accepts explicit workflow_hint and host_context_ref", () => {
+    const parsed = ChatCommand.parse({
+      message: "whatever",
+      resource_refs: ["synthetic-case:case-42"],
+      workflow_hint: "synthetic-analysis",
+      host_context_ref: "reference-context:demo",
+    });
+    expect(parsed.workflow_hint).toBe("synthetic-analysis");
+    expect(parsed.host_context_ref).toBe("reference-context:demo");
+  });
+
+  it("rejects blank and whitespace-only messages", () => {
+    expectFail(ChatCommand, { message: "" }, "empty message");
+    expectFail(ChatCommand, { message: "   " }, "whitespace-only message");
+  });
+
+  it("rejects messages longer than 2000 chars", () => {
+    expectFail(
+      ChatCommand,
+      { message: "a".repeat(2001) },
+      "overlong message",
+    );
+  });
+
+  it("rejects empty resource_refs", () => {
+    expectFail(ChatCommand, { message: "hi", resource_refs: [] }, "empty refs");
+  });
+
+  it("rejects extra keys (mirror of extra=forbid)", () => {
+    expectFail(
+      ChatCommand,
+      { message: "hi", parameters: {} },
+      "unexpected parameters key",
+    );
+  });
+});
 
 describe("EnterpriseEventEnvelope payload contract", () => {
   it("accepts every registered event_type with its canonical payload", () => {

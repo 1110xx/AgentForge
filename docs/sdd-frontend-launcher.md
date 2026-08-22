@@ -219,7 +219,12 @@ steps: checkout → setup-node(v22) + npm ci → npm run lint → npm run test �
 - 验收达成：9/9 用例过（201+Location / 401 / 422 缺 key / 422 空与空白 message / 意图映射命中与保留 intent / fallback 默认 workflow / hint 逃生门 / 幂等重放同 run_id / 追问继续性）；ruff 全绿（chat.py/commands.py/test 干净 + router isort 干净）；全量 pytest **66 passed + 8 skipped**（+9）。
 - **设计修正（实施中发现）**：空白 message（`"   "`）初版会透传为 `intent=""` 并成功创建 —— 已在 `ChatCommand` 加 `model_validator` 拒绝；resource_refs 默认值对齐 reference resolver 前缀（`synthetic-case:demo`）。
 
-### Phase F-B：SDK + Launcher 组件
+### Phase F-B：SDK + Launcher 组件 ✅ 已完成（2026-08-23）
+
+- 交付：`agent-ui-protocol/src/index.ts`（`ChatCommand` Zod schema + 空白/超长拒绝 + `resource_refs` 默认 `["synthetic-case:demo"]`）、`agent-ui-client/src/client.ts`（`chat()`：POST /v1/chat + 幂等 key + 默认生成/显式注入 + 响应严格解析）、`agent-ui-react/src/use-chat.ts`（`useAgentChat`：乐观 entry + 每消息幂等 key + `onRunCreated` 回调 + 防重入/卸载清理）、`agent-ui-react/src/launcher.tsx`（`AgentLauncher`：右下角浮窗 pill ↔ 折叠面板 + 消息列表 + 输入框 + 发送，EAP_THEME 样式，无新 UI 框架）、`index.tsx` 导出 `useAgentChat`/`AgentLauncher`/类型。
+- 测试：`negative.test.ts` +6（默认 refs/显式 hint/空白拒绝/超长/空 refs/extra-forbid）、`client.test.ts` +5（201 解析 + header + body 物化默认 refs/显式 key/空白拒发/超长拒发/422 映射）、`react.test.tsx` +2（展开→发送→/v1/chat→onRunCreated→徽章；空白不发）；**全量 103 passed (was 90)**。
+- 门禁：vitest 103/103、eslint 0 错误、`npm run typecheck` + `npm run build` 全 workspace 过（修复两个 `exactOptionalPropertyTypes` 类型问题：`onRunCreated?: ((id)=>void)|undefined`、send 条件展开可选键）。
+- 技术细节：`use-chat.ts` 经 `./index.js` 取 `useAgentPlatform`（与 followup-panel 同款循环引用模式，运行时解析安全）；zod `.default()` 物化 `resource_refs` 但省略 `workflow_hint`/`host_context_ref`（undefined 不序列化）。
 
 - 文件：`agent-ui-protocol`（ChatCommand + 导出）、`agent-ui-client`（`chat()` + fixture 测试）、`agent-ui-react`（`AgentLauncher`/`useAgentChat` + vitest）
 - 验收：新增单测全过；现有 7 文件全绿；`npm run build` 过。
