@@ -113,14 +113,19 @@ class FollowupAnswer(StrictModel):
 
 
 class FollowupRecord(StrictModel):
-    """One question/answer pair stored for a Run."""
+    """One question/answer (or in-flight question) stored for a Run.
+
+    ``PENDING`` rows are durably queued for a fresh Attempt and have no answer
+    yet; ``ANSWERED`` rows carry the persisted answer (SDD §6.4).
+    """
     schema_version: Literal["followup-record/v1"] = "followup-record/v1"
     run_id: str
     followup_seq: Annotated[int, Field(ge=0)]
     question: str
-    answer: str
-    answered_at: datetime
+    answer: str | None = None
+    answered_at: datetime | None = None
     client_followup_id: str
+    status: Literal["PENDING", "ANSWERED"] = "ANSWERED"
 
 
 class FollowupHistoryPage(StrictModel):
@@ -146,6 +151,14 @@ class AttemptSummary(StrictModel):
     version: Annotated[int, Field(ge=1)]
     started_at: datetime | None
     ended_at: datetime | None
+
+
+class AttemptHistoryPage(StrictModel):
+    """Full Attempt history for a Run (SDD §10.1 — GET /v1/runs/{id}/attempts)."""
+    schema_version: Literal["attempt-history-page/v1"] = "attempt-history-page/v1"
+    run_id: str
+    total_count: Annotated[int, Field(ge=0)]
+    records: tuple[AttemptSummary, ...]
 
 
 class StepSummary(StrictModel):

@@ -1260,6 +1260,9 @@ idempotency_record_table = Table(
     Column("version", Integer, nullable=False),
     Column("created_at", TIMESTAMP, nullable=False),
     Column("updated_at", TIMESTAMP, nullable=False),
+    # TTL horizon: a key may be recycled after expiry and expired rows are
+    # purgeable (SDD §13.2 — IdempotencyRecord no longer accumulates forever).
+    Column("expires_at", TIMESTAMP),
     PrimaryKeyConstraint("tenant_id", "command_type", "idempotency_key", name="pk_idempotency_record"),
     _enum_check("idempotency_record", "state", ["IN_PROGRESS", "COMPLETED"]),
     _version_check("idempotency_record"),

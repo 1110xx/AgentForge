@@ -101,18 +101,29 @@ class FollowupService:
     ) -> FollowupHistoryPage:
         # Ensure the Run exists (will raise if not).
         await self._store.get_run(ctx.tenant_id, run_id)
-        merged: list[tuple[datetime, str, str, str]] = []
+        # Durable records are the authoritative history (PENDING + ANSWERED
+        # survive restarts; SDD §13.1 aggregation gap). In-memory records only
+        # supplement inline answers that never touched the durable store, and
+        # are deduped by client_followup_id (the scheduling path persists the
+        # record AND caches it in memory — without the dedupe every answered
+        # follow-up would appear twice).
+        rows: list[tuple[datetime, str, str | None, str, str]] = []
+        seen: set[str] = set()
+        for record in await self._list_all(ctx.tenant_id, run_id):
+            ordered_at = (
+                record.answered_at if record.answered_at is not None else record.created_at
+            )
+            rows.append(
+                (ordered_at, record.question, record.answer, record.client_followup_id, record.status)
+            )
+            seen.add(record.client_followup_id)
         for record in self._records.get(run_id, ()):
-            merged.append(
-                (record.answered_at, record.question, record.answer, record.client_followup_id)
-            )
-        for item in await self._list_answered(ctx.tenant_id, run_id):
-            if item.answered_at is None:
+            if record.client_followup_id in seen:
                 continue
-            merged.append(
-                (item.answered_at, item.question, item.answer or "", item.client_followup_id)
+            rows.append(
+                (record.answered_at, record.question, record.answer, record.client_followup_id, "ANSWERED")
             )
-        merged.sort(key=lambda row: row[0])
+        rows.sort(key=lambda row: row[0])
         records = tuple(
             FollowupRecord(
                 schema_version="followup-record/v1",
@@ -120,10 +131,11 @@ class FollowupService:
                 followup_seq=index,
                 question=row[1],
                 answer=row[2],
-                answered_at=row[0],
+                answered_at=row[0] if row[4] == "ANSWERED" else None,
                 client_followup_id=row[3],
+                status=row[4],
             )
-            for index, row in enumerate(merged)
+            for index, row in enumerate(rows)
         )
         return FollowupHistoryPage(
             schema_version="followup-history-page/v1",
@@ -234,14 +246,14 @@ class FollowupService:
             return ()
         return tuple(item for item in requests if item.status == "PENDING")
 
-    async def _list_answered(
+    async def _list_all(
         self, tenant_id: str, run_id: str
     ) -> tuple[object, ...]:
+        """All durable follow-up records for the Run (PENDING + ANSWERED)."""
         try:
-            requests = await self._store.list_followup_requests(tenant_id, run_id)
+            return await self._store.list_followup_requests(tenant_id, run_id)
         except AttributeError:
             return ()
-        return tuple(item for item in requests if item.status == "ANSWERED")
 
     def _remember(
         self,

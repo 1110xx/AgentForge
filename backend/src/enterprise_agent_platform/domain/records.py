@@ -4,7 +4,7 @@ Records intentionally contain no runner process or Kubernetes Pod identity. Thos
 are replaceable execution details, while these records survive retries and recovery.
 """
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from pydantic import JsonValue
 
@@ -356,6 +356,12 @@ class InboxMessageRecord:
     failure_code: str | None
 
 
+# Retention horizon for idempotency claims: after this window a key may be
+# recycled by a new request and expired rows are purgeable (SDD §13.2 risk:
+# IdempotencyRecord used to accumulate forever).
+IDEMPOTENCY_RETENTION = timedelta(hours=24)
+
+
 @dataclass(frozen=True, slots=True)
 class IdempotencyRecord:
     tenant_id: str
@@ -371,6 +377,10 @@ class IdempotencyRecord:
     version: int
     created_at: datetime
     updated_at: datetime
+    # Claimed keys carry a horizon from ``now``; completion refreshes it so a
+    # completed result stays replayable for a full retention window. ``None``
+    # (legacy rows) is treated as never-expired.
+    expires_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -17,6 +17,7 @@ from enterprise_agent_platform.contracts.commands import (
 from enterprise_agent_platform.contracts.errors import ApiErrorEnvelope
 from enterprise_agent_platform.contracts.models import (
     ArtifactDownloadAuthorization,
+    AttemptHistoryPage,
     FollowupAnswer,
     FollowupHistoryPage,
     RunEventPage,
@@ -28,11 +29,11 @@ from enterprise_agent_platform.control.context import RequestContext
 from enterprise_agent_platform.control.effect_recovery import FailedEffectRecoveryService
 from enterprise_agent_platform.control.views import RunQueryService
 from enterprise_agent_platform.execution.session import SessionProviderError
-from enterprise_agent_platform.persistence.protocol import PlatformError
 from enterprise_agent_platform.integration.host import (
     HostPortError,
     resolve_run_authorization,
 )
+from enterprise_agent_platform.persistence.protocol import PlatformError
 
 from .dependencies import AgentPlatformContainer, authenticate_request, require_scope
 from .sse import stream_run_events
@@ -165,6 +166,20 @@ def create_agent_platform_router(container: AgentPlatformContainer) -> APIRouter
         snapshot = await query.get_snapshot(ctx.tenant_id, run_id)
         response.headers["ETag"] = _etag(snapshot.view.version)
         return snapshot
+
+    @router.get(
+        "/runs/{run_id}/attempts",
+        response_model=AttemptHistoryPage,
+        operation_id="listRunAttempts",
+        responses=_error_responses(401, 403, 404, 500),
+    )
+    async def list_run_attempts(
+        run_id: str,
+        ctx: Annotated[RequestContext, Depends(context)],
+    ) -> AttemptHistoryPage:
+        """Return the full Attempt history for a Run."""
+        require_scope(ctx, "runs:read")
+        return await query.list_attempts(ctx.tenant_id, run_id)
 
     @router.get(
         "/runs/{run_id}/events",

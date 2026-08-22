@@ -271,7 +271,12 @@ class _RuntimeOpsAdapter(RuntimeOperationsPort):
         if op == OP_HEARTBEAT:
             kwargs["attempt_id"] = capability.attempt_id
             kwargs["generation"] = capability.generation
-        if op == OP_COMMIT_CHECKPOINT:
+        if op in (OP_COMMIT_CHECKPOINT, OP_COMMIT_FINAL):
+            # Passthrough the Agent snapshot on both commit paths: turn-level
+            # checkpoints are the mid-run boundaries, the final checkpoint is
+            # the terminal snapshot a follow-up / rerun Attempt restores from
+            # (SDD §5.5 restore hydration closure). The Pod runtime sends its
+            # exported ``pi-agent-core/v1`` state on both.
             kwargs["agent_state"] = getattr(request, "agent_state", {})
             kwargs["agent_state_schema_version"] = getattr(
                 request, "agent_state_schema_version", "pi-agent-core/v1"
@@ -288,12 +293,6 @@ class _RuntimeOpsAdapter(RuntimeOperationsPort):
             kwargs["canonical_payload_ref"] = getattr(request, "canonical_payload_ref", "")
         if op == OP_COMMIT_FINAL:
             kwargs["summary"] = getattr(request, "summary", "Completed.")
-            # HTTP transport does not stream the Agent snapshot inline yet
-            # (SDD §7.1); piped runtimes continue to carry agent_state via pipe
-            # frames. The durable agent_state is still written because the Pod
-            # sends turn-level snapshots through /runtime/checkpoints.
-            kwargs["agent_state"] = {}
-            kwargs["agent_state_schema_version"] = "http-runtime/v0"
         if op == OP_RECORD_FAILURE:
             kwargs["reason_code"] = getattr(request, "reason_code", "RUNTIME_FAILURE")
         if op == OP_MODEL_CALL:

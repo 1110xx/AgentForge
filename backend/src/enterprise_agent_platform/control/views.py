@@ -6,6 +6,7 @@ from itertools import pairwise
 
 from enterprise_agent_platform.contracts.events import EnterpriseEventEnvelope
 from enterprise_agent_platform.contracts.models import (
+    AttemptHistoryPage,
     AttemptSummary,
     ExecutionUnitSummary,
     RunEventPage,
@@ -100,6 +101,32 @@ class RunQueryService:
             status=run.status,
             watermark=run.last_event_seq,
             view=view,
+        )
+
+    async def list_attempts(self, tenant_id: str, run_id: str) -> AttemptHistoryPage:
+        """Full Attempt history for a Run (public API — no store direct access)."""
+        async with self._store.transaction() as tx:
+            # NOT_FOUND from get_run maps to the public 404 contract.
+            await tx.get_run(tenant_id, run_id)
+            attempts = await tx.list_attempts_for_run(tenant_id, run_id)
+        ordered = tuple(sorted(attempts, key=lambda item: (item.created_at, item.attempt_id)))
+        records = tuple(
+            AttemptSummary(
+                attempt_id=attempt.attempt_id,
+                execution_unit_id=attempt.execution_unit_id,
+                step_id=attempt.step_id,
+                status=attempt.status,
+                version=attempt.version,
+                started_at=attempt.started_at,
+                ended_at=attempt.ended_at,
+            )
+            for attempt in ordered
+        )
+        return AttemptHistoryPage(
+            schema_version="attempt-history-page/v1",
+            run_id=run_id,
+            total_count=len(records),
+            records=records,
         )
 
     async def get_events(

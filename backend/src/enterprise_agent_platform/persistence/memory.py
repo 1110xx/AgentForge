@@ -19,6 +19,7 @@ from enterprise_agent_platform.contracts.enums import (
 )
 from enterprise_agent_platform.contracts.events import EnterpriseEventEnvelope
 from enterprise_agent_platform.domain.records import (
+    IDEMPOTENCY_RETENTION,
     ActionProposalRecord,
     ApprovalRequestRecord,
     ArtifactRecord,
@@ -191,6 +192,11 @@ def _detached[T](value: T) -> T:
 
 def _not_found(entity: str) -> PlatformError:
     return PlatformError("NOT_FOUND", f"{entity} was not found")
+
+
+def _expired(record: IdempotencyRecord, now: datetime) -> bool:
+    """True when the record's TTL horizon has passed; ``None`` never expires."""
+    return record.expires_at is not None and record.expires_at <= now
 
 
 class _MemoryTransaction:
@@ -482,6 +488,28 @@ class _MemoryTransaction:
         key = (tenant_id, namespace, idempotency_key)
         existing = self._state.idempotency.get(key)
         if existing is not None:
+            # TTL expired (SDD §13.2): the key is recycled as a fresh claim so
+            # abandoned IN_PROGRESS and old COMPLETED keys never block reuse.
+            if _expired(existing, now):
+                self._fault("claim_idempotency")
+                recycled = IdempotencyRecord(
+                    tenant_id=tenant_id,
+                    namespace=namespace,
+                    idempotency_key=idempotency_key,
+                    request_digest=request_digest,
+                    actor_id=actor_id,
+                    status="IN_PROGRESS",
+                    result_type=None,
+                    result_id=None,
+                    result_schema=None,
+                    result_payload=None,
+                    version=existing.version + 1,
+                    created_at=now,
+                    updated_at=now,
+                    expires_at=now + IDEMPOTENCY_RETENTION,
+                )
+                self._state.idempotency[key] = _detached(recycled)
+                return None
             if existing.request_digest != request_digest or existing.actor_id != actor_id:
                 raise PlatformError(
                     "IDEMPOTENCY_KEY_REUSED",
@@ -503,6 +531,7 @@ class _MemoryTransaction:
             version=1,
             created_at=now,
             updated_at=now,
+            expires_at=now + IDEMPOTENCY_RETENTION,
         )
         return None
 
@@ -539,9 +568,24 @@ class _MemoryTransaction:
             result_payload=canonical_payload,
             version=existing.version + 1,
             updated_at=now,
+            expires_at=now + IDEMPOTENCY_RETENTION,
         )
         self._state.idempotency[key] = _detached(completed)
         return _detached(completed)
+
+    async def purge_expired_idempotency(self, limit: int) -> int:
+        self._fault("purge_expired_idempotency")
+        now = await self.db_now()
+        expired_keys = [
+            key
+            for key, record in self._state.idempotency.items()
+            if _expired(record, now)
+        ]
+        removed = 0
+        for key in expired_keys[:limit]:
+            self._state.idempotency.pop(key, None)
+            removed += 1
+        return removed
 
     async def insert_run(self, record: RunRecord) -> None:
         self._fault("insert_run")

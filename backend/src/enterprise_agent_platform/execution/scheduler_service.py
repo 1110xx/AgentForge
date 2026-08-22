@@ -55,11 +55,13 @@ class SchedulerService:
     orchestrator: object | None = None
     poll_interval: float = 2.0
     worker_id: str = field(default_factory=lambda: f"scheduler:{id(object()):x}")
+    idempotency_purge_interval: float = 60.0
     _scheduler: FairScheduler = field(init=False, repr=False)
     _runtime: object = field(init=False, repr=False)
     _task: asyncio.Task | None = field(default=None, init=False, repr=False)
     _active_tickets: set[str] = field(default_factory=set, init=False, repr=False)
     _wake_event: asyncio.Event = field(default_factory=asyncio.Event, init=False, repr=False)
+    _last_idempotency_purge: float = field(default=0.0, init=False, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, '_scheduler', FairScheduler(self.store, self.control))
@@ -85,6 +87,13 @@ class SchedulerService:
         try:
             while True:
                 await self._tick()
+                # Maintenance: expired idempotency claims/keys are swept once
+                # per window (SDD §13.2 TTL mitigation) — bounded per run so
+                # the upkeep never blocks scheduling.
+                now = asyncio.get_running_loop().time()
+                if now - self._last_idempotency_purge >= self.idempotency_purge_interval:
+                    self._last_idempotency_purge = now
+                    await self._purge_idempotency()
                 # Sleep for the poll interval unless a wake-up delivery (NATS
                 # inbox) signals that new work may exist — claim immediately
                 # instead of waiting out the full poll cycle.
@@ -108,6 +117,14 @@ class SchedulerService:
         """
         if self._task is None or not self._task.done():
             self._wake_event.set()
+
+    async def _purge_idempotency(self) -> None:
+        """Sweep expired idempotency records, best-effort and bounded."""
+        try:
+            async with self.store.transaction() as tx:
+                await tx.purge_expired_idempotency(500)
+        except Exception:
+            logger.exception("idempotency TTL purge failed (non-fatal)")
 
     async def _tick(self) -> None:
         """One scheduling tick: claim at most one piece of work."""

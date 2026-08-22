@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from typing import Any, TypeVar
 from uuid import uuid4
 
-from sqlalchemy import Select, exists, func, insert, select, text, update
+from sqlalchemy import Select, delete, exists, func, insert, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
@@ -31,6 +31,7 @@ from enterprise_agent_platform.contracts.enums import (
 )
 from enterprise_agent_platform.contracts.events import EnterpriseEventEnvelope
 from enterprise_agent_platform.domain.records import (
+    IDEMPOTENCY_RETENTION,
     ActionProposalRecord,
     ApprovalRequestRecord,
     ArtifactRecord,
@@ -496,7 +497,15 @@ def _idempotency(row: Any) -> IdempotencyRecord:
         version=row._mapping["version"],
         created_at=_aware(row._mapping["created_at"]),  # type: ignore[arg-type]
         updated_at=_aware(row._mapping["updated_at"]),  # type: ignore[arg-type]
+        expires_at=_aware(row._mapping["expires_at"])  # type: ignore[arg-type]
+        if row._mapping["expires_at"] is not None
+        else None,
     )
+
+
+def _expired(record: IdempotencyRecord, now: datetime) -> bool:
+    """True when the record's TTL horizon has passed; ``None`` never expires."""
+    return record.expires_at is not None and record.expires_at <= now
 
 
 def _outbox(row: Any) -> OutboxMessageRecord:
@@ -979,6 +988,7 @@ class SqlAlchemyPlatformTransaction:
             "version": 1,
             "created_at": now,
             "updated_at": now,
+            "expires_at": now + IDEMPOTENCY_RETENTION,
         }
         dialect = self._session.get_bind().dialect.name
         if dialect == "postgresql":
@@ -1008,6 +1018,47 @@ class SqlAlchemyPlatformTransaction:
         record = _idempotency(row)
         if inserted is not None:
             return None
+        # TTL expired (SDD §13.2): recycle the key as a fresh claim so abandoned
+        # IN_PROGRESS claims and old COMPLETED keys never block reuse.
+        if _expired(record, now):
+            recycled = {
+                "actor_id": actor_id,
+                "request_digest": request_digest,
+                "state": "IN_PROGRESS",
+                "result_type": None,
+                "result_schema": None,
+                "result_ref": None,
+                "result_payload": None,
+                "version": idempotency_record_table.c.version + 1,
+                "created_at": now,
+                "updated_at": now,
+                "expires_at": now + IDEMPOTENCY_RETENTION,
+            }
+            refreshed = (
+                await self._session.execute(
+                    update(idempotency_record_table)
+                    .where(
+                        idempotency_record_table.c.tenant_id == tenant_id,
+                        idempotency_record_table.c.command_type == namespace,
+                        idempotency_record_table.c.idempotency_key == idempotency_key,
+                    )
+                    .values(**recycled)
+                    .returning(*idempotency_record_table.c)
+                )
+            ).one_or_none()
+            if refreshed is not None:
+                return None
+            # Another writer refreshed first; re-read and apply normal rules.
+            row = (
+                await self._session.execute(
+                    select(idempotency_record_table).where(
+                        idempotency_record_table.c.tenant_id == tenant_id,
+                        idempotency_record_table.c.command_type == namespace,
+                        idempotency_record_table.c.idempotency_key == idempotency_key,
+                    )
+                )
+            ).one()
+            record = _idempotency(row)
         if record.request_digest != request_digest or record.actor_id != actor_id:
             raise PlatformError(
                 "IDEMPOTENCY_KEY_REUSED",
@@ -1048,6 +1099,7 @@ class SqlAlchemyPlatformTransaction:
                 result_payload=_canonical_json(result_payload),
                 version=idempotency_record_table.c.version + 1,
                 updated_at=now,
+                expires_at=now + IDEMPOTENCY_RETENTION,
             )
             .returning(*idempotency_record_table.c)
         )
@@ -1055,6 +1107,36 @@ class SqlAlchemyPlatformTransaction:
         if row is None:
             raise PlatformError("INTEGRITY_VIOLATION", "idempotency claim is missing or complete")
         return _idempotency(row)
+
+    async def purge_expired_idempotency(self, limit: int) -> int:
+        now = await self.db_now()
+        expired = (
+            await self._session.execute(
+                select(
+                    idempotency_record_table.c.tenant_id,
+                    idempotency_record_table.c.command_type,
+                    idempotency_record_table.c.idempotency_key,
+                )
+                .where(idempotency_record_table.c.expires_at.is_not(None))
+                .where(idempotency_record_table.c.expires_at <= now)
+                .order_by(idempotency_record_table.c.created_at)
+                .limit(limit)
+            )
+        ).all()
+        if not expired:
+            return 0
+        # Portable delete by primary-key tuples (DELETE ... LIMIT is not valid
+        # on PostgreSQL; row-value IN works on both PG and SQLite).
+        await self._session.execute(
+            delete(idempotency_record_table).where(
+                tuple_(
+                    idempotency_record_table.c.tenant_id,
+                    idempotency_record_table.c.command_type,
+                    idempotency_record_table.c.idempotency_key,
+                ).in_(expired)
+            )
+        )
+        return len(expired)
 
     async def _insert(self, table: TableClause, values: dict[str, object], entity: str) -> None:
         try:

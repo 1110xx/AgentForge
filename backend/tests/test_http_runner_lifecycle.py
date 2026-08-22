@@ -31,6 +31,34 @@ from enterprise_agent_platform.reference.local_stack import (
 
 HEADERS = {"Authorization": REFERENCE_LOCAL_BEARER}
 
+# Realistic pi-agent-core Agent snapshot (what ``runtime.py`` exports at
+# TurnEnd/AgentEnd — stable fields only: system_prompt/model/thinking_level/
+# tools/messages). Hydration assertions below rely on it round-tripping:
+# commit_final → terminal Checkpoint → restore on a subsequent Attempt.
+_AGENT_STATE = {
+    "system_prompt": "## Task Intent\n\nAnalyze a portable synthetic resource",
+    "model": {
+        "api": "deepseek",
+        "provider": "deepseek",
+        "id": "deepseek-chat",
+    },
+    "thinking_level": None,
+    "tools": [],
+    "messages": [
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": "Summarize the synthetic case."}],
+        },
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "The synthetic case is portable and self-contained."}
+            ],
+        },
+    ],
+}
+_AGENT_STATE_SCHEMA = "pi-agent-core/v1"
+
 
 def _client() -> tuple[TestClient, object]:
     container = create_container()
@@ -53,12 +81,12 @@ def _create_run(client: TestClient, idempotency_key: str) -> str:
     return response.json()["run_id"]
 
 
-async def _pre_reserve(container, run_id: str):
+async def _pre_reserve(container, run_id: str, *, transition_key: str = "http-runner-test"):
     ctx = RequestContext(
         tenant_id=REFERENCE_LOCAL_TENANT,
         actor_id="http-runner-test",
         scopes=("runs:execute",),
-        request_id="pre-reserve-http",
+        request_id=f"pre-reserve-http:{transition_key}",
     )
     unit = await container.store.get_primary_unit(ctx.tenant_id, run_id)
     checkpoint = await container.store.get_checkpoint(
@@ -69,8 +97,37 @@ async def _pre_reserve(container, run_id: str):
         unit.execution_unit_id,
         checkpoint.checkpoint_id,
         unit.version,
-        transition_key="http-runner-test",
+        transition_key=transition_key,
     )
+
+
+def _bootstrap(client: TestClient, attempt) -> tuple[dict, dict]:
+    """Bootstrap an Attempt through the Internal API and return (identity, lease)."""
+    bootstrap = client.post(
+        "/internal/v1/runtime/bootstrap",
+        headers={"Authorization": f"Bearer projected:{REFERENCE_LOCAL_TENANT}"},
+        json={
+            "pod_uid": f"pod-http-{attempt.attempt_id[-8:]}",
+            "attempt_id": attempt.attempt_id,
+            "generation": attempt.generation,
+        },
+    )
+    assert bootstrap.status_code == 200, bootstrap.text
+    identity = bootstrap.json()
+    assert identity["runtime_token"] == f"runtime-token:{attempt.attempt_id}"
+    subject = {
+        "tenant_id": REFERENCE_LOCAL_TENANT,
+        "run_id": attempt.run_id,
+        "execution_unit_id": attempt.execution_unit_id,
+        "attempt_id": attempt.attempt_id,
+        "generation": attempt.generation,
+    }
+    lease = {
+        **subject,
+        "lease_owner": identity["lease_owner"],
+        "lease_version": identity["lease_version"],
+    }
+    return identity, lease
 
 
 def test_http_runner_full_lifecycle() -> None:
@@ -201,26 +258,47 @@ def test_http_runner_full_lifecycle() -> None:
         assert turn.json()["status"] == "committed"
         assert turn.json()["result_ref"], "turn checkpoint must return checkpoint_id"
 
-        # ── 6. commit_final: terminal transition (Run → SUCCEEDED) ──
+        # ── 6. commit_final: terminal snapshot + transition (Run → SUCCEEDED) ──
+        # The Pod sends its exported Agent state on AgentEnd (runtime.py Step 7);
+        # the terminal Checkpoint is the cursor a follow-up / rerun Attempt
+        # restores from, so it must carry the same snapshot history.
         final = client.post(
             "/internal/v1/runtime/checkpoints/final",
             headers=runtime_headers,
             json={
                 **lease,
                 "summary": "Synthetic analysis completed.",
+                "agent_state": _AGENT_STATE,
+                "agent_state_schema_version": _AGENT_STATE_SCHEMA,
             },
         )
         assert final.status_code == 200, final.text
 
+        # The terminal Checkpoint (unit's current cursor) must persist the
+        # Agent snapshot — restore hydration depends on it.
+        unit_after = asyncio.run(
+            container.store.get_primary_unit(REFERENCE_LOCAL_TENANT, run_id)
+        )
+        terminal = asyncio.run(
+            container.store.get_checkpoint(
+                REFERENCE_LOCAL_TENANT, unit_after.current_checkpoint_id
+            )
+        )
+        assert terminal.agent_state == _AGENT_STATE, (
+            "commit_final must persist the terminal Agent snapshot"
+        )
+        assert terminal.agent_state_schema_version == _AGENT_STATE_SCHEMA
+
         run_view = client.get(f"/v1/runs/{run_id}", headers=HEADERS).json()
         assert run_view["status"] == "SUCCEEDED", run_view
 
-        # Attempt must have reached SUCCEEDED (checked through the store;
-        # there is no public attempts endpoint).
-        final_attempt = asyncio.run(
-            container.store.get_attempt(REFERENCE_LOCAL_TENANT, attempt.attempt_id)
-        )
-        assert final_attempt.status.value == "SUCCEEDED", final_attempt.status
+        # Attempt must have reached SUCCEEDED — read through the public
+        # attempts endpoint (SDD §10.1, no store direct access).
+        attempts = client.get(f"/v1/runs/{run_id}/attempts", headers=HEADERS).json()
+        assert attempts["total_count"] == 1, attempts
+        assert attempts["records"][0]["attempt_id"] == attempt.attempt_id
+        assert attempts["records"][0]["status"] == "SUCCEEDED", attempts
+        assert attempts["records"][0]["ended_at"], "succeeded attempt must be ended"
 
         # Event timeline includes the full lifecycle.
         events = client.get(
@@ -233,6 +311,143 @@ def test_http_runner_full_lifecycle() -> None:
             "run.status.changed",
         ):
             assert expected in event_types, (expected, event_types)
+
+
+def test_http_restore_hydrates_agent_state_across_rounds() -> None:
+    """Restore hydration closure: a subsequent Attempt rehydrates history.
+
+    Phase 3 last gap: the HTTP adapter used to throw away ``request.agent_state``
+    on commit_final (writing ``{}`` + ``http-runtime/v0``), so the terminal
+    Checkpoint — the cursor any follow-up / rerun Attempt restores from — had
+    no Agent snapshot and the fresh Pod started with a blank Agent. This test
+    pins the closed loop:
+
+    1. full HTTP lifecycle with turn + final snapshots → Run SUCCEEDED;
+    2. a follow-up reactivates the Run (RECOVERING + PENDING durable record);
+    3. a new Attempt (generation+1) bootstraps and restores via the Internal
+       API;
+    4. restore returns the hydrated ``agent_state`` (full conversation history)
+       plus the injected ``followup_question``.
+    """
+    client, container = _client()
+    with client:
+        run_id = _create_run(client, "http-hydration-1")
+        reservation = asyncio.run(_pre_reserve(container, run_id))
+        attempt = reservation.attempt
+
+        identity, lease = _bootstrap(client, attempt)
+        runtime_headers = {"Authorization": f"Bearer {identity['runtime_token']}"}
+
+        restore = client.post(
+            "/internal/v1/runtime/restore", headers=runtime_headers, json=lease
+        )
+        assert restore.status_code == 200, restore.text
+        assert restore.json()["agent_state"] == {}, (
+            "fresh run restores an empty Agent snapshot"
+        )
+
+        heartbeat = client.post(
+            "/internal/v1/runtime/heartbeat", headers=runtime_headers, json=lease
+        )
+        refreshed = heartbeat.json()
+        lease["lease_version"] = refreshed["lease_version"]
+
+        turn = client.post(
+            "/internal/v1/runtime/checkpoints",
+            headers=runtime_headers,
+            json={
+                **lease,
+                "agent_state": _AGENT_STATE,
+                "agent_state_schema_version": _AGENT_STATE_SCHEMA,
+            },
+        )
+        assert turn.status_code == 200, turn.text
+
+        final = client.post(
+            "/internal/v1/runtime/checkpoints/final",
+            headers=runtime_headers,
+            json={
+                **lease,
+                "summary": "Synthetic analysis completed.",
+                "agent_state": _AGENT_STATE,
+                "agent_state_schema_version": _AGENT_STATE_SCHEMA,
+            },
+        )
+        assert final.status_code == 200, final.text
+        run_view = client.get(f"/v1/runs/{run_id}", headers=HEADERS).json()
+        assert run_view["status"] == "SUCCEEDED", run_view
+
+        # ── Subsequent round: queue a follow-up on the terminal Run ──
+        ctx = RequestContext(
+            tenant_id=REFERENCE_LOCAL_TENANT,
+            actor_id="http-runner-test",
+            scopes=("runs:execute", "runs:write"),
+            request_id="followup-hydration",
+        )
+        followup = asyncio.run(
+            container.control.queue_followup(
+                ctx,
+                run_id,
+                question="Why did the summary omit case 3?",
+                client_followup_id="http-hydration-followup",
+            )
+        )
+        assert followup.status == "PENDING", followup.status
+        recovering = asyncio.run(container.store.get_run(REFERENCE_LOCAL_TENANT, run_id))
+        assert recovering.status.value == "RECOVERING", recovering.status
+
+        # ── Reserve + bootstrap + restore the fresh Attempt (generation+1) ──
+        next_reservation = asyncio.run(
+            _pre_reserve(container, run_id, transition_key="http-runner-test-followup")
+        )
+        assert next_reservation.attempt.generation == attempt.generation + 1
+        # The public attempts endpoint exposes both generations (SDD §10.1
+        # — tests need no store direct access).
+        attempts = client.get(f"/v1/runs/{run_id}/attempts", headers=HEADERS).json()
+        assert attempts["total_count"] == 2, attempts
+        generations = sorted(item["attempt_id"] for item in attempts["records"])
+        assert all(generations), attempts
+        next_identity, next_lease = _bootstrap(client, next_reservation.attempt)
+        next_headers = {"Authorization": f"Bearer {next_identity['runtime_token']}"}
+
+        restore_fresh = client.post(
+            "/internal/v1/runtime/restore", headers=next_headers, json=next_lease
+        )
+        assert restore_fresh.status_code == 200, restore_fresh.text
+        rehydrated = restore_fresh.json()
+        assert rehydrated["checkpoint_state"] == "COMMITTED"
+        assert rehydrated["agent_state"] == _AGENT_STATE, (
+            "subsequent-round restore must rehydrate the terminal Agent snapshot"
+        )
+        assert rehydrated["agent_state_schema_version"] == _AGENT_STATE_SCHEMA
+        assert rehydrated["workflow_cursor"].get("followup_question") == (
+            "Why did the summary omit case 3?"
+        ), "restore cursor must carry the queued follow-up question"
+        assert rehydrated["workflow_cursor"].get("summary") == (
+            "Synthetic analysis completed."
+        )
+
+
+def test_attempts_endpoint_requires_auth_and_run_exists() -> None:
+    client, _ = _client()
+    with client:
+        # Unauthenticated access must be rejected before route logic.
+        missing_auth = client.get("/v1/runs/run-any/attempts")
+        assert missing_auth.status_code in {401, 403}, missing_auth.text
+
+        run_id = _create_run(client, "attempts-endpoint-1")
+        # A freshly created Run has no Attempt yet (the scheduler reserves one
+        # before execution) — empty but valid history.
+        listed = client.get(f"/v1/runs/{run_id}/attempts", headers=HEADERS)
+        assert listed.status_code == 200, listed.text
+        body = listed.json()
+        assert body["schema_version"] == "attempt-history-page/v1"
+        assert body["run_id"] == run_id
+        assert body["total_count"] == 0 and body["records"] == [], body
+
+        # Unknown Run → 404.
+        missing = client.get("/v1/runs/run-does-not-exist/attempts", headers=HEADERS)
+        assert missing.status_code == 404, missing.text
 
 
 def test_http_runner_rejects_wrong_runtime_token() -> None:

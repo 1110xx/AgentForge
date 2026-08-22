@@ -198,16 +198,17 @@ class FinalCheckpointRequest(RestoreRequest):
 
     Extends ``RestoreRequest`` so the Pod can keep signing its CAS writes with
     the fresh lease facts (owner/version) — the shared commit handler reads
-    them from the ``context`` bundle. ``agent_state`` is accepted for forward
-    compatibility; the HTTP transport currently streams Agent snapshots via
-    turn-level checkpoints instead of inlining them here.
+    them from the ``context`` bundle. ``agent_state`` carries the terminal
+    Agent snapshot (same ``pi-agent-core/v1`` schema as turn-level checkpoints)
+    — the final Checkpoint is what a follow-up / rerun Attempt restores from,
+    so dropping it would break history hydration across rounds.
     """
 
     summary: Annotated[str, Field(min_length=1, max_length=8192)]
     agent_state: dict[str, JsonValue] = Field(default_factory=dict)
     agent_state_schema_version: Annotated[
         str, Field(min_length=1, max_length=64)
-    ] = "http-runtime/v0"
+    ] = "pi-agent-core/v1"
 
 
 class RuntimeFailureRequest(RuntimeSubjectRequest):
