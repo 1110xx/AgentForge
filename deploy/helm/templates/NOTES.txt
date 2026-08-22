@@ -1,0 +1,37 @@
+Enterprise Agent Platform installed.
+
+API Service (ClusterIP):
+  {{ .Values.controlPlane.apiPort }}/api/agent-platform
+  Health readiness: /api/agent-platform/v1/health/ready
+  Health liveness:  /api/agent-platform/v1/health/live
+{{- if .Values.ingress.enabled }}
+
+Ingress:
+  host: {{ .Values.ingress.host }}
+  path: /api/agent-platform
+  {{- if .Values.ingress.tls.enabled }}
+  TLS secret: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+{{- else }}
+
+To reach the API outside the cluster, port-forward (dev) or enable
+`ingress.enabled` in values:
+  kubectl -n agent-platform-control port-forward svc/agent-platform-api {{ .Values.controlPlane.apiPort }}:{{ .Values.controlPlane.apiPort }}
+{{- end }}
+
+Workloads:
+  API deployment:           agent-platform-api (replicas={{ .Values.controlPlane.replicas }})
+  Orchestrator deployment:  agent-platform-orchestrator (replicas={{ .Values.controlPlane.workersReplicas }})
+{{- if .Values.autoscaling.enabled }}
+  HPA:                      agent-platform-api ({{ .Values.autoscaling.minReplicas }}..{{ .Values.autoscaling.maxReplicas }})
+  KEDA ScaledObject:        agent-platform-orchestrator (NATS JetStream lag)
+{{- end }}
+
+External dependencies (not installed by this chart):
+  PostgreSQL / NATS JetStream (R{{ .Values.dependencies.nats.streamReplicas }}) / S3 / OIDC
+Secrets are injected from ExternalSecret {{ .Values.secrets.externalSecretName }} (store: {{ .Values.secrets.storeRefKind }} {{ .Values.secrets.storeRefName }}).
+
+Verification:
+  helm test (add tests/ if defined), or:
+  kubectl -n agent-platform-control get deploy,hpa,scaledobject,pdb,svc
+  curl -fsS http://127.0.0.1:{{ .Values.controlPlane.apiPort }}/api/agent-platform/v1/health/ready  # after port-forward

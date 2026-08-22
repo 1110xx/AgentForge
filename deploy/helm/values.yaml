@@ -13,6 +13,132 @@ controlPlane:
   kubernetesApiCidr: 10.96.0.1/32
   dependencyEgressCidr: 10.0.0.0/8
 
+  # Resource requests/limits for each control-plane workload. Tune according
+  # to observed usage; the API hosts the scheduler-adjacent FastAPI app.
+  apiResources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  # Orchestrator (worker) pods dispatch K8s Jobs per Attempt.
+  workerResources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  # Short-lived pre-install/pre-upgrade migration Job.
+  migrationResources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # HTTP probes for the API pods. Paths must match the app's health routes
+  # (see platform/entrypoint.py: /api/agent-platform/v1/health/{live,ready}).
+  apiProbes:
+    readiness:
+      path: /api/agent-platform/v1/health/ready
+      initialDelaySeconds: 3
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 3
+    liveness:
+      path: /api/agent-platform/v1/health/live
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+  # Orchestrator workers serve no HTTP traffic; probes are exec-based and
+  # verify the worker process (PID 1) is alive. Override `command` to plug in
+  # a custom health check (e.g. a readiness file the worker writes).
+  workerProbes:
+    readiness:
+      command: ["/bin/sh", "-c", "kill -0 1"]
+      initialDelaySeconds: 3
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+    liveness:
+      command: ["/bin/sh", "-c", "kill -0 1"]
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+
+dependencies:
+  postgresql:
+    endpoint: postgresql+asyncpg://db.example.invalid:5432/agent_platform
+  nats:
+    endpoint: tls://nats.example.invalid:4222
+    monitoringEndpoint: https://nats-monitor.example.invalid:8222
+    stream: AGENT_PLATFORM
+    streamReplicas: 3
+  s3:
+    endpoint: https://objects.example.invalid
+    bucket: agent-artifacts
+  oidc:
+    issuer: https://identity.example.invalid
+
+# Optional Ingress to expose the public API outside the cluster. The chart
+# ships a ClusterIP Service only; enable this to route through an Ingress
+# controller (the control-api-ingress NetworkPolicy already allows the
+# ingress-nginx namespace). TLS uses cert-manager when clusterIssuer is set,
+# or an existing TLS secret referenced by name.
+ingress:
+  enabled: false
+  className: nginx
+  host: agent-platform.example.invalid
+  annotations: {}
+  tls:
+    enabled: false
+    secretName: agent-platform-api-tls
+    clusterIssuer: ""
+
+# Optional local scratch persistence. The control plane keeps all durable
+# state in the external PostgreSQL; /tmp is scratch only, so the default is
+# an emptyDir. Enable a PVC only when you need to retain /tmp contents (e.g.
+# debug logs, staged artifacts) across pod restarts. Note: a ReadWriteOnce
+# PVC cannot be shared by multiple API replicas — use it with replicas=1 or
+# a ReadWriteMany storage class.
+persistence:
+  localScratch:
+    enabled: false
+    storageClassName: ""
+    size: 10Gi
+
+secrets:
+  externalSecretContract: true
+  externalSecretName: agent-platform-dependencies
+  storeRefName: enterprise-secret-store
+  storeRefKind: ClusterSecretStore
+  remoteKey: .enterprise-agent-platform/production
+
+integration:
+  # Host adapters may override either factory; the platform ships its own
+  # Kubernetes worker (Phase 3): scheduler -> K8s Job dispatch runner.
+  containerFactory: enterprise_agent_platform.reference.k8s_container:create_container
+  workerFactory: enterprise_agent_platform.execution.k8s_worker:run_worker
+
+sandbox:
+  namespace: agent-platform-sandbox
+  serviceAccountName: agent-platform-sandbox
+  runtimeClassName: agent-platform-gvisor
+  maxActiveAttempts: 100
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 20
+  pendingMessagesPerReplica: "5"
+  # CPU utilization target for the API HPA (autoscaling/v2, Utilization).
+  apiCpuAverageUtilization: 70
+
 dependencies:
   postgresql:
     endpoint: postgresql+asyncpg://db.example.invalid:5432/agent_platform

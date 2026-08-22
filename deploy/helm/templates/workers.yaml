@@ -74,13 +74,27 @@ spec:
                 secretKeyRef:
                   name: "{{ .Values.secrets.externalSecretName }}"
                   key: AGENT_PLATFORM_NATS_STREAM_REPLICAS
+          readinessProbe:
+            exec:
+              command: {{ .Values.controlPlane.workerProbes.readiness.command | toJson }}
+            initialDelaySeconds: {{ .Values.controlPlane.workerProbes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.controlPlane.workerProbes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.controlPlane.workerProbes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.controlPlane.workerProbes.readiness.failureThreshold }}
+          livenessProbe:
+            exec:
+              command: {{ .Values.controlPlane.workerProbes.liveness.command | toJson }}
+            initialDelaySeconds: {{ .Values.controlPlane.workerProbes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.controlPlane.workerProbes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.controlPlane.workerProbes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.controlPlane.workerProbes.liveness.failureThreshold }}
           resources:
             requests:
-              cpu: 250m
-              memory: 256Mi
+              cpu: {{ .Values.controlPlane.workerResources.requests.cpu }}
+              memory: {{ .Values.controlPlane.workerResources.requests.memory }}
             limits:
-              cpu: "1"
-              memory: 1Gi
+              cpu: {{ .Values.controlPlane.workerResources.limits.cpu }}
+              memory: {{ .Values.controlPlane.workerResources.limits.memory }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

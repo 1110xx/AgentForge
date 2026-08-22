@@ -2,6 +2,7 @@
 | 文档 | 说明 |
 | --- | --- |
 | operations.md | 数据路径、L2/L3、生产 Helm/Sandbox、容量和 L4 证据边界。 |
+| helm/README.md | Helm Chart 部署细则：values 逐项说明、resources/limits、探针、HPA/KEDA、PVC、Ingress/TLS、无集群静态校验。 |
 
 ## 目录内容
 | 名称 | 类型 | 说明 |

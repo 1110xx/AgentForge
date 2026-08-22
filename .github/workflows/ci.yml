@@ -39,3 +39,25 @@ jobs:
 
       - name: E2E — artifact/action events (in-memory)
         run: uv run python verify_artifact_action_events.py --store memory
+
+  helm-static-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install helm (no cluster gate: lint + template + schema + YAML)
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Set up Python for YAML manifest parsing
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install PyYAML
+        run: python -m pip install pyyaml
+
+      - name: Helm static gate
+        run: bash scripts/check-k8s.sh

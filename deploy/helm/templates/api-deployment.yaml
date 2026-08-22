@@ -48,38 +48,53 @@ spec:
                 name: "{{ .Values.secrets.externalSecretName }}"
           readinessProbe:
             httpGet:
-              path: /api/agent-platform/v1/health/ready
+              path: {{ .Values.controlPlane.apiProbes.readiness.path }}
               port: http
-            initialDelaySeconds: 3
-            periodSeconds: 5
+            initialDelaySeconds: {{ .Values.controlPlane.apiProbes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.controlPlane.apiProbes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.controlPlane.apiProbes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.controlPlane.apiProbes.readiness.failureThreshold }}
           livenessProbe:
             httpGet:
-              path: /api/agent-platform/v1/health/live
+              path: {{ .Values.controlPlane.apiProbes.liveness.path }}
               port: http
-            initialDelaySeconds: 10
-            periodSeconds: 10
+            initialDelaySeconds: {{ .Values.controlPlane.apiProbes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.controlPlane.apiProbes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.controlPlane.apiProbes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.controlPlane.apiProbes.liveness.failureThreshold }}
           resources:
             requests:
-              cpu: 250m
-              memory: 256Mi
+              cpu: {{ .Values.controlPlane.apiResources.requests.cpu }}
+              memory: {{ .Values.controlPlane.apiResources.requests.memory }}
             limits:
-              cpu: "1"
-              memory: 1Gi
+              cpu: {{ .Values.controlPlane.apiResources.limits.cpu }}
+              memory: {{ .Values.controlPlane.apiResources.limits.memory }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
           volumeMounts:
+            {{- if .Values.persistence.localScratch.enabled }}
+            - name: local-scratch
+              mountPath: /tmp
+            {{- else }}
             - name: tmp
               mountPath: /tmp
+            {{- end }}
             - name: kubernetes-identity
               mountPath: /var/run/secrets/kubernetes.io/serviceaccount
               readOnly: true
       volumes:
+        {{- if .Values.persistence.localScratch.enabled }}
+        - name: local-scratch
+          persistentVolumeClaim:
+            claimName: agent-platform-local-scratch
+        {{- else }}
         - name: tmp
           emptyDir:
             sizeLimit: 128Mi
+        {{- end }}
         - name: kubernetes-identity
           projected:
             defaultMode: 288

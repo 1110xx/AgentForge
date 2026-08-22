@@ -56,6 +56,92 @@
           "type": "integer",
           "minimum": 0,
           "default": 2
+        },
+        "apiResources": {
+          "$ref": "#/$defs/resources"
+        },
+        "workerResources": {
+          "$ref": "#/$defs/resources"
+        },
+        "migrationResources": {
+          "$ref": "#/$defs/resources"
+        },
+        "apiProbes": {
+          "$ref": "#/$defs/probes"
+        },
+        "workerProbes": {
+          "$ref": "#/$defs/probes"
+        }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "className",
+        "host"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "className": {
+          "type": "string",
+          "default": "nginx"
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "secretName": {
+              "type": "string",
+              "minLength": 1
+            },
+            "clusterIssuer": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "localScratch": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "storageClassName": {
+              "type": "string",
+              "default": ""
+            },
+            "size": {
+              "type": "string",
+              "pattern": "^[0-9]+([EPTGMK]i?)?$"
+            }
+          }
         }
       }
     },
@@ -238,6 +324,12 @@
           "type": "string",
           "pattern": "^[1-9][0-9]*$"
         },
+        "apiCpuAverageUtilization": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 70
+        },
         "enabled": {
           "type": "boolean",
           "default": true
@@ -246,6 +338,79 @@
     }
   },
   "$defs": {
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": {
+          "$ref": "#/$defs/quantityPair"
+        },
+        "limits": {
+          "$ref": "#/$defs/quantityPair"
+        }
+      }
+    },
+    "quantityPair": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpu": {
+          "type": "string"
+        },
+        "memory": {
+          "type": "string"
+        }
+      }
+    },
+    "probes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "readiness": {
+          "$ref": "#/$defs/probe"
+        },
+        "liveness": {
+          "$ref": "#/$defs/probe"
+        }
+      }
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "initialDelaySeconds",
+        "periodSeconds",
+        "timeoutSeconds",
+        "failureThreshold"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "initialDelaySeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "periodSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "failureThreshold": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
     "image": {
       "type": "object",
       "additionalProperties": false,

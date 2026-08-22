@@ -48,3 +48,13 @@ autoscaling:
   minReplicas: 1
   maxReplicas: 20
   pendingMessagesPerReplica: "5"
+
+# Kind profile: no external exposure and no local scratch persistence.
+ingress:
+  enabled: false
+  className: nginx
+  host: agent-platform.kind.invalid
+
+persistence:
+  localScratch:
+    enabled: false

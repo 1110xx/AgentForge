@@ -38,12 +38,19 @@ if [ -z "$helm_command" ]; then
 fi
 
 python_command=""
-if [ -x "$root_dir/backend/.venv/bin/python" ]; then
-  python_command="$root_dir/backend/.venv/bin/python"
-elif [ -x "$root_dir/backend/.venv/Scripts/python.exe" ]; then
-  python_command="$root_dir/backend/.venv/Scripts/python.exe"
-else
-  echo "backend virtualenv is required" >&2
+for candidate in \
+  "$root_dir/backend/.venv/bin/python" \
+  "$root_dir/backend/.venv/Scripts/python.exe" \
+  "$(command -v python3 2>/dev/null || true)" \
+  "$(command -v python 2>/dev/null || true)"; do
+  if [ -n "$candidate" ] && [ -x "$candidate" ] && \
+     "$candidate" -c 'import yaml' >/dev/null 2>&1; then
+    python_command="$candidate"
+    break
+  fi
+done
+if [ -z "$python_command" ]; then
+  echo "python3/PyYAML is required (venv or system python with pyyaml)" >&2
   exit 69
 fi
 
@@ -53,8 +60,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# helm lint validates the chart AND the values against the local
+# values.schema.json (additionalProperties/required/pattern enforcement),
+# with no cluster or network access required.
 "$helm_command" lint "$root_dir/deploy/helm" >/dev/null
-echo "helm lint passed"
+echo "helm lint passed (default values, schema validated)"
+"$helm_command" lint "$root_dir/deploy/helm" --values "$root_dir/deploy/kind/values.yaml" >/dev/null
+echo "helm lint passed (kind values, schema validated)"
 
 render_kind() {
   "$helm_command" template agent-platform "$root_dir/deploy/helm" \
@@ -71,12 +83,31 @@ render_prod() {
     >"$temporary_root/prod.yaml"
 }
 
+# Extended profile: exercise the optional Ingress (with TLS) and local scratch
+# PVC templates so the gate covers more than the two default profiles.
+render_extended() {
+  "$helm_command" template agent-platform-ext "$root_dir/deploy/helm" \
+    --values "$root_dir/deploy/kind/values.yaml" \
+    --set-string "images.controlPlane.repository=localhost:5001/enterprise-agent-platform/control-plane" \
+    --set-string "images.controlPlane.digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+    --set-string "images.runtime.repository=localhost:5001/enterprise-agent-platform/runtime" \
+    --set-string "images.runtime.digest=sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" \
+    --set "ingress.enabled=true" \
+    --set "ingress.host=agent-platform.example.org" \
+    --set "ingress.tls.enabled=true" \
+    --set "ingress.tls.secretName=agent-platform-example-tls" \
+    --set "persistence.localScratch.enabled=true" \
+    >"$temporary_root/extended.yaml"
+}
+
 render_kind
 echo "helm template (kind values) rendered"
 render_prod
 echo "helm template (production values) rendered"
+render_extended
+echo "helm template (extended: ingress+pvc) rendered"
 
-"$python_command" - "$temporary_root/kind.yaml" "$temporary_root/prod.yaml" <<'PY'
+"$python_command" - "$temporary_root/kind.yaml" "$temporary_root/prod.yaml" "$temporary_root/extended.yaml" <<'PY'
 import sys
 
 import yaml

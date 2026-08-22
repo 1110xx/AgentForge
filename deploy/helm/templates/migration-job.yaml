@@ -37,11 +37,11 @@ spec:
                   key: AGENT_PLATFORM_DATABASE_URL
           resources:
             requests:
-              cpu: 100m
-              memory: 128Mi
+              cpu: {{ .Values.controlPlane.migrationResources.requests.cpu }}
+              memory: {{ .Values.controlPlane.migrationResources.requests.memory }}
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: {{ .Values.controlPlane.migrationResources.limits.cpu }}
+              memory: {{ .Values.controlPlane.migrationResources.limits.memory }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

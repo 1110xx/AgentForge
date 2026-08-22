@@ -1,0 +1,18 @@
+{{- if .Values.persistence.localScratch.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: agent-platform-local-scratch
+  namespace: agent-platform-control
+  labels:
+    app.kubernetes.io/name: agent-platform-local-scratch
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.persistence.localScratch.size }}
+  {{- with .Values.persistence.localScratch.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+{{- end }}
