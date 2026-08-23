@@ -73,6 +73,65 @@ const summaryStyle: CSSProperties = {
   marginBottom: "12px",
 };
 
+/* ------------------------------------------------------------------ */
+/* Curator-style hero (layout language borrowed from the pi-web-access  */
+/* search curator, remapped onto the EAP light-blue palette)            */
+/* ------------------------------------------------------------------ */
+
+const heroStyle: CSSProperties = {
+  marginBottom: "20px",
+};
+
+const heroKickerStyle: CSSProperties = {
+  margin: "0 0 6px",
+  fontSize: "11px",
+  fontWeight: 700,
+  letterSpacing: "0.1em",
+  textTransform: "uppercase",
+  color: "#2563eb",
+};
+
+const heroTitleStyle: CSSProperties = {
+  margin: "0 0 8px",
+  fontSize: "28px",
+  fontWeight: 700,
+  letterSpacing: "-0.01em",
+  lineHeight: 1.1,
+  color: "#0f172a",
+  textWrap: "balance",
+};
+
+const heroDescStyle: CSSProperties = {
+  margin: "0 0 12px",
+  maxWidth: "480px",
+  fontSize: "14px",
+  lineHeight: 1.5,
+  color: "#475569",
+};
+
+const heroMetaStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  flexWrap: "wrap",
+  gap: "8px",
+  fontSize: "13px",
+  color: "#475569",
+};
+
+// Curator-style pill badge for the bound run / mode.
+const chipStyle: CSSProperties = {
+  padding: "2px 10px",
+  borderRadius: "999px",
+  background: "rgba(37, 99, 235, 0.10)",
+  border: "1px solid rgba(37, 99, 235, 0.30)",
+  color: "#2563eb",
+  fontSize: "11px",
+  fontWeight: 700,
+  letterSpacing: "0.03em",
+  textTransform: "uppercase",
+  whiteSpace: "nowrap",
+};
+
 export function App() {
   const [mode, setMode] = useState<DemoMode>("demo");
   const [intent, setIntent] = useState("Analyze failure patterns");
@@ -141,16 +200,15 @@ export function App() {
 
   return (
     <div style={pageStyle}>
-      <h1 style={{ fontSize: "18px", margin: "0 0 4px" }}>
-        AgentForge Embedded Host Example
-      </h1>
-      <div style={statusLine}>
-        SDK: @platform/agent-ui-* · proxy: /api/agent-platform/ → backend (live
-        mode) or in-app mock (demo mode)
-      </div>
-
-      <div style={cardStyle}>
-        <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
+      <header style={heroStyle}>
+        <p style={heroKickerStyle}>Embedded Host</p>
+        <h1 style={heroTitleStyle}>Agent Platform</h1>
+        <p style={heroDescStyle}>
+          右下角 💬 Agent 浮窗即前端入口：消息经 POST /v1/chat 创建 Run，
+          AgentPanel 自动绑定并实时跟随工作流。Demo 模式走内嵌 mock，Live
+          模式直连真实后端（经 dev proxy /api/agent-platform/）。
+        </p>
+        <div style={heroMetaStyle}>
           <button
             type="button"
             style={mode === "demo" ? buttonStyle : secondaryButton}
@@ -165,7 +223,13 @@ export function App() {
           >
             Live (backend)
           </button>
+          {runId !== null ? (
+            <span style={chipStyle}>run {runId.slice(0, 8)}…</span>
+          ) : null}
         </div>
+      </header>
+
+      <div style={cardStyle}>
         <details>
           <summary style={summaryStyle}>
             Advanced: create run manually
@@ -233,9 +297,23 @@ export function App() {
       <AgentPlatformProvider client={client} hostBridge={hostBridge}>
         {runId === null ? (
           <div style={{ ...cardStyle, color: "#475569" }}>
-            使用右下角 💬 Agent 浮窗发起自由对话，或用上方高级选项手动创建
-            Run。Demo 模式下 mock 会回放完整参考工作流（progress → evidence
-            → artifact → approval → effect → succeeded）。
+            <p
+              style={{
+                ...heroKickerStyle,
+                margin: "0 0 4px",
+              }}
+            >
+              Getting Started
+            </p>
+            <div style={{ fontWeight: 600, marginBottom: "6px" }}>
+              用浮窗发起一次对话
+            </div>
+            <div style={statusLine}>
+              点击右下角 💬 Agent，输入任意问题（如“分析日志中的故障模式”）后
+              发送——Demo 模式 mock 回放完整参考工作流（progress → evidence
+              → artifact → approval → effect → succeeded）；Live 模式则由真实
+              后端创建 Run 并返回 201 + run_id。
+            </div>
           </div>
         ) : (
           <AgentPanel runId={runId} />
