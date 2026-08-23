@@ -56,6 +56,12 @@ autoscaling:
   maxReplicas: 20
   pendingMessagesPerReplica: "5"
 
+observability:
+  enabled: false
+  otlpEndpoint: ""
+  jsonLogs: false
+  prometheusExporter: false
+
 # Kind profile: no external exposure and no local scratch persistence.
 ingress:
   enabled: false

@@ -74,6 +74,14 @@ spec:
                 secretKeyRef:
                   name: "{{ .Values.secrets.externalSecretName }}"
                   key: AGENT_PLATFORM_NATS_STREAM_REPLICAS
+            {{- if .Values.observability.enabled }}
+            - name: AGENT_PLATFORM_OTLP_ENDPOINT
+              value: "{{ .Values.observability.otlpEndpoint }}"
+            - name: AGENT_PLATFORM_PROMETHEUS_ENABLED
+              value: {{ .Values.observability.prometheusExporter | quote }}
+            {{- end }}
+            - name: AGENT_PLATFORM_JSON_LOGS
+              value: {{ .Values.observability.jsonLogs | quote }}
           readinessProbe:
             exec:
               command: {{ .Values.controlPlane.workerProbes.readiness.command | toJson }}

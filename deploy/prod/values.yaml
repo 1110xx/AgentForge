@@ -67,6 +67,16 @@ sandbox:
   runtimeClassName: agent-platform-gvisor
   maxActiveAttempts: 100
 
+# Observability wiring (Phase 4.3 G5): turn on after the collector and the
+# observability stack are deployed (deploy/observability/README.md). The
+# golden file keeps it off so the digest-pinned gate stays self-contained;
+# the observability gate overrides it via --set observability.*=….
+observability:
+  enabled: false
+  otlpEndpoint: ""
+  jsonLogs: false
+  prometheusExporter: false
+
 # Durable state lives outside the cluster (external PostgreSQL/NATS/S3) and
 # is wired through External Secrets — the contract is enabled by default and
 # must resolve to your SecretStore (G2).

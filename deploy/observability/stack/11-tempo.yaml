@@ -1,0 +1,136 @@
+# Tempo single binary (trace backend). The OTLP collector forwards traces here
+# over gRPC :4317. Search is enabled so the Grafana "single-run trace" dashboard
+# can browse by attribute (agent.platform.run.id / attempt.id).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-platform-tempo
+  namespace: agent-platform-observability
+  labels:
+    app.kubernetes.io/name: agent-platform-tempo
+data:
+  config.yaml: |
+    multitenancy_enabled: false
+    server:
+      http_listen_port: 3200
+      grpc_listen_port: 9095
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+    ingester:
+      max_block_duration: 5m
+    compactor:
+      compaction:
+        block_retention: 168h
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /var/tempo/traces
+        wal:
+          path: /var/tempo/wal
+    query_frontend:
+      search:
+        enabled: true
+        max_result_limit: 100
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: agent-platform-tempo
+  namespace: agent-platform-observability
+  labels:
+    app.kubernetes.io/name: agent-platform-tempo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform-tempo
+  serviceName: agent-platform-tempo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent-platform-tempo
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+      containers:
+        - name: tempo
+          image: grafana/tempo:2.5.0
+          args: ["-config.file=/etc/tempo/config.yaml"]
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+            - name: http
+              containerPort: 3200
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1024Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/tempo
+              readOnly: true
+            - name: storage
+              mountPath: /var/tempo
+      volumes:
+        - name: config
+          configMap:
+            name: agent-platform-tempo
+  volumeClaimTemplates:
+    - metadata:
+        name: storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-platform-tempo
+  namespace: agent-platform-observability
+  labels:
+    app.kubernetes.io/name: agent-platform-tempo
+spec:
+  selector:
+    app.kubernetes.io/name: agent-platform-tempo
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+    - name: http
+      port: 3200
+      targetPort: http

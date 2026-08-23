@@ -30,6 +30,7 @@ from enterprise_agent_platform.domain.records import DispatchTicket
 from enterprise_agent_platform.execution.completer import RunCompleter
 from enterprise_agent_platform.execution.session import RunSessionProvider
 from enterprise_agent_platform.persistence.protocol import PlatformError, PlatformStore
+from enterprise_agent_platform.platform.telemetry import DiagnosticTelemetry
 
 logger = logging.getLogger(__name__)
 
@@ -55,11 +56,12 @@ class LocalRuntime:
     run_sessions: RunSessionProvider | None = None
     heartbeat_interval: float = 30.0
     lease_ttl: timedelta = timedelta(minutes=2)
+    telemetry: DiagnosticTelemetry | None = None
     completer: RunCompleter = field(init=False)
 
     def __post_init__(self) -> None:
         # Shared terminal-state machine (also used by SubprocessOrchestrator).
-        self.completer = RunCompleter(self.store)
+        self.completer = RunCompleter(self.store, telemetry=self.telemetry)
 
     async def execute(self, ticket: DispatchTicket) -> None:
         """Execute one run end-to-end from a claimed DispatchTicket."""

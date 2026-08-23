@@ -1,0 +1,80 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Run lifecycle counters (${run_id})",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+      "targets": [
+        {"refId": "A", "expr": "sum(agent_platform_run_lifecycle_total)", "legendFormat": "all runs"},
+        {"refId": "B", "expr": "sum(agent_platform_run_lifecycle_total{state=\"succeeded\"})", "legendFormat": "succeeded"}
+      ],
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}, "overrides": []}
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Attempt lifecycle (${run_id})",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 12, "x": 8, "y": 0},
+      "targets": [
+        {"refId": "A", "expr": "sum by (operation) (agent_platform_attempts_total)", "legendFormat": "__auto", "format": "table"}
+      ],
+      "options": {"showHeader": true},
+      "fieldConfig": {"defaults": {}, "overrides": []}
+    },
+    {
+      "id": 3,
+      "type": "logs",
+      "title": "Logs for ${run_id} (traces ↔ logs join key)",
+      "datasource": {"type": "loki", "uid": "loki"},
+      "gridPos": {"h": 12, "w": 24, "x": 0, "y": 4},
+      "targets": [
+        {"refId": "A", "expr": "{namespace=~\"agent-platform-control|agent-platform-sandbox\"} | json | run_id=\"${run_id}\"", "datasource": {"type": "loki", "uid": "loki"}}
+      ],
+      "options": {"showTime": true, "sortOrder": "Descending", "dedupStrategy": "none", "enableLogDetails": true},
+      "fieldConfig": {"defaults": {}, "overrides": []}
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Model latency p50/p95 (${run_id} context)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "targets": [
+        {"refId": "A", "expr": "histogram_quantile(0.50, sum by (le) (rate(agent_platform_model_latency_seconds_bucket[5m])))", "legendFormat": "p50"},
+        {"refId": "B", "expr": "histogram_quantile(0.95, sum by (le) (rate(agent_platform_model_latency_seconds_bucket[5m])))", "legendFormat": "p95"}
+      ],
+      "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+      "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "palette-classic"}}, "overrides": []}
+    },
+    {
+      "id": 5,
+      "type": "text",
+      "title": "How to drill into the trace",
+      "datasource": {"type": "datasource", "uid": "grafana"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "options": {"mode": "markdown", "content": "### Tempo trace lookup\n\nOpen **Explore** → datasource **Tempo** and query:\n\n`{ resource.service.name = \"enterprise-agent-platform\" } && { attributes[\"agent.platform.run.id\"] = \"${run_id}\" }`\n\nEvery Attempt-generation span (run.created → attempt.dispatch → job.submit → runtime.bootstrap → model.call → checkpoint.commit) carries `agent.platform.run.id` / `agent.platform.attempt.id`; the **waterfall** groups them under one trace_id, and the **same** run_id/attempt_id join into the Loki logs above (one key across traces ↔ logs)."},
+      "fieldConfig": {"defaults": {}, "overrides": []}
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["agent-platform"],
+  "templating": {"list": [{"name": "run_id", "label": "run_id", "type": "textbox", "query": "", "current": {}, "options": []}]},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Agent Platform · Single Run Trace",
+  "uid": "agent-platform-run-trace",
+  "version": 1,
+  "weekStart": ""
+}

@@ -7,6 +7,7 @@ from enterprise_agent_platform.control.context import RequestContext
 from enterprise_agent_platform.control.service import ControlPlaneService
 from enterprise_agent_platform.domain.records import DispatchTicket, SchedulableWork
 from enterprise_agent_platform.persistence.protocol import PlatformError, PlatformStore
+from enterprise_agent_platform.platform.telemetry import DiagnosticTelemetry
 
 
 class FairScheduler:
@@ -16,9 +17,11 @@ class FairScheduler:
         self,
         store: PlatformStore,
         control_service: ControlPlaneService | None = None,
+        telemetry: DiagnosticTelemetry | None = None,
     ) -> None:
         self._store = store
-        self._control = control_service or ControlPlaneService(store)
+        self._control = control_service or ControlPlaneService(store, telemetry=telemetry)
+        self._telemetry = telemetry
         self._last_tenant: str | None = None
         self._claim_lock = asyncio.Lock()
 
@@ -27,6 +30,15 @@ class FairScheduler:
             raise PlatformError("INTEGRITY_VIOLATION", "worker_id is required")
         async with self._claim_lock:
             candidates = await self._store.list_schedulable_work()
+            if self._telemetry is not None:
+                try:
+                    self._telemetry.record_gauge(
+                        "agent_platform_queue_backlog",
+                        float(len(candidates)),
+                        labels={"operation": "scheduler.claim"},
+                    )
+                except Exception:  # noqa: BLE001, S110 - diagnostics never gate claims
+                    pass
             tenants = sorted({candidate.run.tenant_id for candidate in candidates})
             if not tenants:
                 return None

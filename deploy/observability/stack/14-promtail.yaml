@@ -1,0 +1,143 @@
+# Promtail DaemonSet — pushes container logs from the control-plane, sandbox
+# and observability namespaces to Loki. Container stdout is JSON-structured
+# (AGENT_PLATFORM_JSON_LOGS=1), so the `json` stage extracts
+# trace_id / run_id / attempt_id into queryable fields — the join key between
+# Tempo traces and Loki logs (traces ↔ logs 一 key).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-platform-promtail
+  namespace: agent-platform-observability
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: agent-platform-promtail
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["extensions"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: agent-platform-promtail
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: agent-platform-promtail
+subjects:
+  - kind: ServiceAccount
+    name: agent-platform-promtail
+    namespace: agent-platform-observability
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-platform-promtail
+  namespace: agent-platform-observability
+  labels:
+    app.kubernetes.io/name: agent-platform-promtail
+data:
+  promtail.yaml: |
+    server:
+      http_listen_port: 3101
+    clients:
+      - url: http://agent-platform-loki.agent-platform-observability:3100/loki/api/v1/push
+    scrape_configs:
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_namespace]
+            action: keep
+            regex: agent-platform-(control|sandbox|observability)
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            action: replace
+            target_label: app
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_container_name]
+            action: replace
+            target_label: container
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+        pipeline_stages:
+          - json:
+              expressions:
+                trace_id: trace_id
+                run_id: run_id
+                attempt_id: attempt_id
+          - structured_metadata:
+              trace_id: trace_id
+              run_id: run_id
+              attempt_id: attempt_id
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: agent-platform-promtail
+  namespace: agent-platform-observability
+  labels:
+    app.kubernetes.io/name: agent-platform-promtail
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform-promtail
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent-platform-promtail
+    spec:
+      serviceAccountName: agent-platform-promtail
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: promtail
+          image: grafana/promtail:3.2.1
+          args: ["-config.file=/etc/promtail/promtail.yaml"]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/promtail
+              readOnly: true
+            - name: pods
+              mountPath: /var/log/pods
+              readOnly: true
+            - name: containers
+              mountPath: /var/log/containers
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: agent-platform-promtail
+        - name: pods
+          hostPath:
+            path: /var/log/pods
+        - name: containers
+          hostPath:
+            path: /var/log/containers
+            type: Directory
+        - name: tmp
+          emptyDir: {}

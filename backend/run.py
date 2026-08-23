@@ -190,7 +190,31 @@ def main() -> None:
         logger.info("using SQLite store (%s)", database_url)
     else:
         logger.info("using PostgreSQL store (AGENT_PLATFORM_DATABASE_URL)")
-    control = ControlPlaneService(store)
+
+    # ── Telemetry (Phase 4.3/G5): OTLP + Prometheus when AGENT_PLATFORM_OTLP_*
+    #    / AGENT_PLATFORM_PROMETHEUS_ENABLED are configured; otherwise None so
+    #    local development keeps running with zero signal cost. JSON logs are
+    #    env-gated too (Loki centralisation).
+    from enterprise_agent_platform.platform.logging_json import (
+        install_json_logs_if_enabled,
+    )
+    from enterprise_agent_platform.platform.telemetry_service import (
+        create_telemetry_from_env,
+        maybe_wrap_sessions,
+    )
+
+    install_json_logs_if_enabled()
+    telemetry = create_telemetry_from_env(
+        service_name="enterprise-agent-platform-control"
+    )
+    if telemetry is not None:
+        logger.info(
+            "telemetry enabled (OTLP=%s, prometheus=%s)",
+            bool(os.environ.get("AGENT_PLATFORM_OTLP_ENDPOINT", "").strip()),
+            os.environ.get("AGENT_PLATFORM_PROMETHEUS_ENABLED", "0"),
+        )
+    control = ControlPlaneService(store, telemetry=telemetry)
+    run_sessions = maybe_wrap_sessions(run_sessions, telemetry)
 
     # Followup service: terminal Runs are re-scheduled as new Attempts,
     # live Runs answer inline through the model provider session.
@@ -208,6 +232,7 @@ def main() -> None:
         control=control,
         run_sessions=run_sessions,
         resource_resolver=DemoResourceResolver(),
+        telemetry=telemetry,
     )
     if os.environ.get("AGENT_PLATFORM_K8S_WORKER") == "1":
         from enterprise_agent_platform.execution.k8s_worker import (
@@ -231,6 +256,7 @@ def main() -> None:
                 "AGENT_PLATFORM_SANDBOX_SERVICE_ACCOUNT", "agent-platform-sandbox"
             ),
             runtime_class=os.environ.get("AGENT_PLATFORM_SANDBOX_RUNTIME_CLASS") or None,
+            telemetry=telemetry,
         )
         logger.info("Kubernetes orchestrator enabled (AGENT_PLATFORM_K8S_WORKER=1)")
     scheduler = SchedulerService(
@@ -239,6 +265,7 @@ def main() -> None:
         run_sessions=run_sessions,
         orchestrator=orchestrator,
         poll_interval=2.0,
+        telemetry=telemetry,
     )
 
     # Wire everything together
@@ -251,15 +278,17 @@ def main() -> None:
         policy_context_provider=DemoPolicyContextProvider(),
         run_sessions=run_sessions,
         followups=followups,
+        telemetry=telemetry,
     )
 
     app = create_agent_platform_app(container)
 
     # ── Run API server + scheduler loop concurrently ──
+    api_port = int(os.environ.get("AGENT_PLATFORM_API_PORT", "8080").strip() or "8080")
     config = uvicorn.Config(
         app,
         host="127.0.0.1",
-        port=8080,
+        port=api_port,
         log_level="info",
     )
     server = uvicorn.Server(config)

@@ -29,6 +29,7 @@ from pi_agent_core.types import (
 )
 
 from enterprise_agent_platform.persistence.protocol import PlatformError
+from enterprise_agent_platform.platform.telemetry import DiagnosticTelemetry
 
 log = logging.getLogger(__name__)
 
@@ -259,6 +260,7 @@ class AgentRuntime:
 
         # Injected after construction (set by subprocess_runtime / local_runtime)
         self._native_tools: list[AgentTool] = []
+        self._telemetry: DiagnosticTelemetry | None = None
         self._remote_tools: list[AgentTool] = []
         self._stream_fn: StreamFn | None = None
         self._get_api_key: Any = None
@@ -289,6 +291,15 @@ class AgentRuntime:
         model: Model | None = None,
         tools: list[AgentTool] | None = None,
     ) -> int:
+        if self._telemetry is None:
+            from enterprise_agent_platform.platform.telemetry_service import (
+                create_telemetry_from_env,
+            )
+
+            self._telemetry = create_telemetry_from_env(
+                service_name="enterprise-agent-platform-runtime"
+            )
+        telemetry = self._telemetry
         # ── Step 1: Bootstrap identity ──
         try:
             if self._identity_provider is not None:
@@ -332,17 +343,50 @@ class AgentRuntime:
             execution_unit_id=grant.execution_unit_id,
         )
         self._context = context
+        # Log correlation is a logging concern, not a telemetry one: always set
+        # run_id/attempt_id so JSON (or any) runner logs carry the join key to
+        # Tempo spans, even when no OTLP sink is configured.
+        from enterprise_agent_platform.platform.logging_json import (
+            set_attempt_id,
+            set_run_id,
+        )
 
-        # ── Step 3: Restore checkpoint ──
-        try:
-            checkpoint = await self._control.restore(context)
-            if checkpoint.checkpoint_state != "COMMITTED" or checkpoint.snapshot_state not in (
-                None,
-                "READY",
+        set_run_id(context.run_id)
+        set_attempt_id(context.attempt_id)
+
+        # ── Step 3: Restore checkpoint (bootstrap span covering 引导阶段) ──
+        bootstrap_attributes: dict[str, str | int | bool] = {
+            "agent.platform.attempt.id": attempt_id,
+            "agent.platform.lease.generation": generation,
+        }
+        if getattr(context, "run_id", ""):
+            bootstrap_attributes["agent.platform.run.id"] = context.run_id
+        if telemetry is not None:
+            bootstrap_trace = telemetry.begin_trace()
+            with telemetry.span(
+                "runtime.bootstrap",
+                attributes=bootstrap_attributes,
+                trace=bootstrap_trace,
             ):
+                try:
+                    checkpoint = await self._control.restore(context)
+                except PlatformError:
+                    return 78
+                if (
+                    checkpoint.checkpoint_state != "COMMITTED"
+                    or checkpoint.snapshot_state not in (None, "READY")
+                ):
+                    return 78
+        else:
+            try:
+                checkpoint = await self._control.restore(context)
+                if checkpoint.checkpoint_state != "COMMITTED" or checkpoint.snapshot_state not in (
+                    None,
+                    "READY",
+                ):
+                    return 78
+            except PlatformError:
                 return 78
-        except PlatformError:
-            return 78
 
         # ── Step 4: Assemble Agent ──
         intent = str(checkpoint.workflow_cursor.get("intent", ""))
@@ -439,19 +483,66 @@ class AgentRuntime:
                     self._context = context
                 except Exception:
                     context = self._context
-                await self._control.commit_final_checkpoint(
-                    context,
-                    summary=summary,
-                    agent_state=_export_agent_state(agent),
-                    agent_state_schema_version=_AGENT_STATE_SCHEMA_VERSION,
-                )
+                telemetry = self._telemetry
+                final_attributes: dict[str, str | int | bool] = {
+                    "agent.platform.attempt.id": context.attempt_id,
+                    "agent.platform.lease.generation": context.generation,
+                    "agent.platform.state": "final",
+                    "agent.platform.outcome": "ok",
+                }
+                if context.run_id:
+                    final_attributes["agent.platform.run.id"] = context.run_id
+                if telemetry is not None:
+                    final_trace = telemetry.begin_trace()
+                    with telemetry.span(
+                        "checkpoint.commit",
+                        attributes=final_attributes,
+                        trace=final_trace,
+                    ):
+                        await self._control.commit_final_checkpoint(
+                            context,
+                            summary=summary,
+                            agent_state=_export_agent_state(agent),
+                            agent_state_schema_version=_AGENT_STATE_SCHEMA_VERSION,
+                        )
+                else:
+                    await self._control.commit_final_checkpoint(
+                        context,
+                        summary=summary,
+                        agent_state=_export_agent_state(agent),
+                        agent_state_schema_version=_AGENT_STATE_SCHEMA_VERSION,
+                    )
                 return 0
             else:
-                await self._control.record_failure(
-                    context,
-                    reason_code="AGENT_FAILURE" if exit_code == 1 else "SYSTEM_ERROR",
-                    retryable=(exit_code < 75),
-                )
+                telemetry = self._telemetry
+                if telemetry is not None:
+                    failure_attributes: dict[str, str | int | bool] = {
+                        "agent.platform.attempt.id": context.attempt_id,
+                        "agent.platform.lease.generation": context.generation,
+                        "agent.platform.outcome": "error",
+                        "agent.platform.state": "failed",
+                    }
+                    if context.run_id:
+                        failure_attributes["agent.platform.run.id"] = context.run_id
+                    failure_trace = telemetry.begin_trace()
+                    with telemetry.span(
+                        "run.terminal",
+                        attributes=failure_attributes,
+                        trace=failure_trace,
+                    ):
+                        await self._control.record_failure(
+                            context,
+                            reason_code=(
+                                "AGENT_FAILURE" if exit_code == 1 else "SYSTEM_ERROR"
+                            ),
+                            retryable=(exit_code < 75),
+                        )
+                else:
+                    await self._control.record_failure(
+                        context,
+                        reason_code="AGENT_FAILURE" if exit_code == 1 else "SYSTEM_ERROR",
+                        retryable=(exit_code < 75),
+                    )
                 return exit_code
         except PlatformError as error:
             if error.code in (
@@ -534,11 +625,32 @@ class AgentRuntime:
         """
         try:
             agent_state = _export_agent_state(agent)
-            await self._control.commit_checkpoint(
-                self._context or context,
-                agent_state=agent_state,
-                agent_state_schema_version=_AGENT_STATE_SCHEMA_VERSION,
-            )
+            telemetry = self._telemetry
+            if telemetry is not None:
+                trace = telemetry.begin_trace()
+                checkpoint_attributes: dict[str, str | int | bool] = {
+                    "agent.platform.attempt.id": context.attempt_id,
+                    "agent.platform.lease.generation": context.generation,
+                    "agent.platform.state": "turn",
+                }
+                if context.run_id:
+                    checkpoint_attributes["agent.platform.run.id"] = context.run_id
+                with telemetry.span(
+                    "checkpoint.commit",
+                    attributes=checkpoint_attributes,
+                    trace=trace,
+                ):
+                    await self._control.commit_checkpoint(
+                        self._context or context,
+                        agent_state=agent_state,
+                        agent_state_schema_version=_AGENT_STATE_SCHEMA_VERSION,
+                    )
+            else:
+                await self._control.commit_checkpoint(
+                    self._context or context,
+                    agent_state=agent_state,
+                    agent_state_schema_version=_AGENT_STATE_SCHEMA_VERSION,
+                )
         except Exception as exc:
             log.warning("turn checkpoint commit failed (non-fatal): %s", exc)
 

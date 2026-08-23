@@ -35,8 +35,22 @@ from enterprise_agent_platform.domain.records import (
     RunRecord,
 )
 from enterprise_agent_platform.persistence.protocol import PlatformStore
+from enterprise_agent_platform.platform.telemetry import DiagnosticTelemetry
 
 logger = logging.getLogger(__name__)
+
+
+def _record(
+    telemetry: DiagnosticTelemetry | None,
+    call=lambda: None,  # pragma: no cover - default no-op
+) -> None:
+    """Best-effort diagnostics; telemetry must never gate terminal commits."""
+    if telemetry is None:
+        return
+    try:
+        call()
+    except Exception:  # noqa: BLE001, S110 - diagnostics must never gate terminal commits
+        pass
 
 
 class RunCompleter:
@@ -50,8 +64,13 @@ class RunCompleter:
     - Write audit + outbox ``run.terminal`` records
     """
 
-    def __init__(self, store: PlatformStore) -> None:
+    def __init__(
+        self,
+        store: PlatformStore,
+        telemetry: DiagnosticTelemetry | None = None,
+    ) -> None:
         self._store = store
+        self._telemetry = telemetry
 
     async def complete_run(
         self,
@@ -210,6 +229,28 @@ class RunCompleter:
                     published_at=None,
                 )
             )
+            _record(
+                self._telemetry,
+                lambda: self._telemetry.record_metric(  # type: ignore[union-attr]
+                    "agent_platform_run_lifecycle_total", 1.0, labels={"state": "succeeded"}
+                ),
+            )
+            _record(
+                self._telemetry,
+                lambda: self._telemetry.record_metric(  # type: ignore[union-attr]
+                    "agent_platform_attempts_total",
+                    1.0,
+                    labels={"operation": "attempt.succeeded", "state": "succeeded"},
+                ),
+            )
+            _record(
+                self._telemetry,
+                lambda: self._telemetry.timing(  # type: ignore[union-attr]
+                    "agent_platform_run_latency_seconds",
+                    (now - run.created_at).total_seconds(),
+                    labels={"state": "succeeded"},
+                ),
+            )
 
     async def fail_run(
         self,
@@ -364,6 +405,28 @@ class RunCompleter:
                     created_at=now,
                     published_at=None,
                 )
+            )
+            _record(
+                self._telemetry,
+                lambda: self._telemetry.record_metric(  # type: ignore[union-attr]
+                    "agent_platform_run_lifecycle_total", 1.0, labels={"state": "failed"}
+                ),
+            )
+            _record(
+                self._telemetry,
+                lambda: self._telemetry.record_metric(  # type: ignore[union-attr]
+                    "agent_platform_attempts_total",
+                    1.0,
+                    labels={"operation": "attempt.failed", "state": "failed"},
+                ),
+            )
+            _record(
+                self._telemetry,
+                lambda: self._telemetry.timing(  # type: ignore[union-attr]
+                    "agent_platform_run_latency_seconds",
+                    (now - run.created_at).total_seconds(),
+                    labels={"state": "failed"},
+                ),
             )
 
 

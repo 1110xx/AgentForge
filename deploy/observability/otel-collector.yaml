@@ -1,51 +1,160 @@
-receivers:
-otlp:
-    grpc:
-    endpoint:0.0.0.0:4317
-    http:
-    endpoint:0.0.0.0:4318
-processors:
-memory_limiter:
-check_interval:1s
-limit_mib:512
-spike_limit_mib:128
-filter/drop_sensitive:
-error_mode:ignore
-traces:
-    span:
-        "IsMatch(attributes["http.request.header.authorization"]
-        'IsMatch(attributes["agent.prompt"],".+")
-        'IsMatch(attributes["tool.payload"],"
-attributes/redact:
-actions:
-3241万5
-    (key:http.request.header.authorization,action:delete)
-    (key:http.response.header.set-cookie,action:delete}
-    (key:url.query, action: delete}
-    (key:agent.prompt,action:delete)
-    (key:tool.payload,action:delete}
-    (key:user.id,action:delete}
-batch:
-send_batch_size:1024
-timeout:5s
-EE exporters:
-otlphttp:
-endpoint:"S{enV:AGENT_PLATFORM_OTLP_EXPORT_BNDPOINT)
-compression:gzip
-prometheus:
-endpoint:0.0.0.0:9464
-debug:
-verbosity:basic
-service:
-telemetry:
-logs:
-    level: info
-pipelines:
-traces:
-    receivers:[otlp)
-    processors:[memory_limiter,filter/drop_sensitive,attributes/redact,batch]
-    exporters:[otlphttp]
-    metrics:
-    receivers:[otlp]
-    processors:[memory_limiter,attributes/redact,batch]
-    exporters:[prometheus,otlphttp]
+# OTLP Collector (Phase 4.3 G5) — single-file deployment for the control plane.
+#
+# Traces + metrics flow from the API / worker / runtime pods over OTLP to this
+# collector, which then forwards:
+#   traces  → Tempo (grafana/tempo single binary, agent-platform-tempo:4317)
+#   metrics → Prometheus (exposed on :9464, scraped by the stack Prometheus)
+# Sensitive span attributes (authorization headers, prompts, tool payloads,
+# user ids) are dropped in the redaction processor.
+#
+# Apply via: kubectl apply -f deploy/observability/otel-collector.yaml
+# Namespace: agent-platform-observability (created by stack/00-namespace.yaml).
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-platform-otel-collector
+  namespace: agent-platform-observability
+  labels:
+    app.kubernetes.io/name: agent-platform-otel-collector
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 512
+        spike_limit_mib: 128
+      attributes/redact:
+        actions:
+          - key: http.request.header.authorization
+            action: delete
+          - key: http.response.header.set-cookie
+            action: delete
+          - key: url.query
+            action: delete
+          - key: agent.prompt
+            action: delete
+          - key: tool.payload
+            action: delete
+          - key: user.id
+            action: delete
+      batch:
+        send_batch_size: 1024
+        timeout: 5s
+    exporters:
+      debug:
+        verbosity: basic
+      prometheus:
+        endpoint: 0.0.0.0:9464
+      otlp/tempo:
+        endpoint: agent-platform-tempo.agent-platform-observability:4317
+        tls:
+          insecure: true
+    service:
+      telemetry:
+        logs:
+          level: info
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, attributes/redact, batch]
+          exporters: [otlp/tempo]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, attributes/redact, batch]
+          exporters: [prometheus]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-platform-otel-collector
+  namespace: agent-platform-observability
+  labels:
+    app.kubernetes.io/name: agent-platform-otel-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform-otel-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent-platform-otel-collector
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+      containers:
+        - name: otelcol
+          image: otel/opentelemetry-collector-contrib:0.115.0
+          args: ["--config=/etc/otelcol/config.yaml"]
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+            - name: metrics
+              containerPort: 9464
+            - name: health
+              containerPort: 13133
+          env:
+            - name: MY_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 1024Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: agent-platform-otel-collector
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-platform-otel-collector
+  namespace: agent-platform-observability
+  labels:
+    app.kubernetes.io/name: agent-platform-otel-collector
+spec:
+  selector:
+    app.kubernetes.io/name: agent-platform-otel-collector
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+    - name: metrics
+      port: 9464
+      targetPort: metrics

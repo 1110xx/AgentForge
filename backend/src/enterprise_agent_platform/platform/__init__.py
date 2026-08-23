@@ -9,6 +9,14 @@ from .config_reader import (
     ProviderType,
     SessionConfig,
 )
+from .logging_json import (
+    JsonLogFormatter,
+    correlation,
+    install_json_logs,
+    set_attempt_id,
+    set_run_id,
+    set_trace_id,
+)
 from .message_bus import (
     InboxConsumer,
     InMemoryMessageBus,
@@ -30,8 +38,20 @@ from .telemetry import (
     MetricLabelPolicy,
     OpenTelemetryDiagnosticSink,
     PrometheusMetricSink,
+    SpanHandle,
     SpanLink,
     TelemetryPolicyError,
+    prometheus_text,
+)
+from .telemetry_service import (
+    TelemetrySessionProvider,
+    create_telemetry_from_env,
+    default_metric_label_policy,
+    http_route_bucket,
+    http_status_class,
+    maybe_wrap_sessions,
+    prometheus_enabled,
+    prometheus_registry,
 )
 
 __all__ = [
@@ -44,6 +64,7 @@ __all__ = [
     "InMemoryDiagnosticSink",
     "InMemoryMessageBus",
     "InboxConsumer",
+    "JsonLogFormatter",
     "LoggingConfig",
     "MessageBus",
     "MessageDelivery",
@@ -59,7 +80,22 @@ __all__ = [
     "ProviderParameters",
     "ProviderType",
     "SessionConfig",
+    "SpanHandle",
     "SpanLink",
     "TelemetryPolicyError",
+    "TelemetrySessionProvider",
+    "correlation",
+    "create_telemetry_from_env",
+    "default_metric_label_policy",
+    "http_route_bucket",
+    "http_status_class",
+    "install_json_logs",
     "load_provider",
+    "maybe_wrap_sessions",
+    "prometheus_enabled",
+    "prometheus_registry",
+    "prometheus_text",
+    "set_attempt_id",
+    "set_run_id",
+    "set_trace_id",
 ]

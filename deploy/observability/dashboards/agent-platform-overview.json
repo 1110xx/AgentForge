@@ -1,0 +1,118 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Runs in 24h (succeeded / failed)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+      "targets": [
+        {"refId": "A", "expr": "sum(rate(agent_platform_run_lifecycle_total{state=~\"succeeded|failed\"}[24h]))", "legendFormat": "terminal rate"},
+        {"refId": "B", "expr": "sum(rate(agent_platform_run_lifecycle_total{state=\"succeeded\"}[24h]))", "legendFormat": "succeeded"}
+      ],
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}, "overrides": []}
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Queue backlog (current)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
+      "targets": [
+        {"refId": "A", "expr": "agent_platform_queue_backlog", "legendFormat": "backlog"}
+      ],
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 5}, {"color": "red", "value": 10}]}}, "overrides": []}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "API error ratio (5m)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
+      "targets": [
+        {"refId": "A", "expr": "sum(rate(agent_platform_http_requests_total{http.status_class=~\"4xx|5xx\"}[5m])) / clamp_min(sum(rate(agent_platform_http_requests_total[5m])), 1.0)", "legendFormat": "error ratio"}
+      ],
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}, "textMode": "value_and_name"},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 0.05}]}}, "overrides": []}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Model p95 latency (5m)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0},
+      "targets": [
+        {"refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(agent_platform_model_latency_seconds_bucket[5m])))", "legendFormat": "p95"}
+      ],
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 5}, {"color": "red", "value": 20}]}}, "overrides": []}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Run lifecycle (7d success rate)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [
+        {"refId": "A", "expr": "sum by (state) (rate(agent_platform_run_lifecycle_total[5m]))", "legendFormat": "{{state}}"}
+      ],
+      "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}}, "overrides": []}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "API QPS by status class",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {"refId": "A", "expr": "sum by (http.status_class) (rate(agent_platform_http_requests_total[5m]))", "legendFormat": "{{http.status_class}}"}
+      ],
+      "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}}, "overrides": []}
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Attempt terminal states",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12},
+      "targets": [
+        {"refId": "A", "expr": "sum by (operation) (rate(agent_platform_attempts_total[1h]))", "legendFormat": "__auto", "format": "table"}
+      ],
+      "options": {"showHeader": true, "sortBy": [{"desc": true, "displayName": "Value"}]},
+      "fieldConfig": {"defaults": {}, "overrides": []}
+    },
+    {
+      "id": 8,
+      "type": "logs",
+      "title": "Control-plane logs",
+      "datasource": {"type": "loki", "uid": "loki"},
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 20},
+      "targets": [
+        {"refId": "A", "expr": "{namespace=~\"agent-platform-control|agent-platform-sandbox|agent-platform-observability\"} | json", "datasource": {"type": "loki", "uid": "loki"}}
+      ],
+      "options": {"showTime": true, "sortOrder": "Descending", "dedupStrategy": "none", "enableLogDetails": true},
+      "fieldConfig": {"defaults": {}, "overrides": []}
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["agent-platform"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Agent Platform · Overview",
+  "uid": "agent-platform-overview",
+  "version": 1,
+  "weekStart": ""
+}

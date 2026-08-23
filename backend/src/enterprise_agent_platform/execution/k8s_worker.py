@@ -38,6 +38,8 @@ from enterprise_agent_platform.execution.orchestrator import KubernetesOrchestra
 from enterprise_agent_platform.execution.scheduler_service import SchedulerService
 from enterprise_agent_platform.persistence.protocol import PlatformStore
 from enterprise_agent_platform.platform.relay import create_relay_from_env
+from enterprise_agent_platform.platform.telemetry import DiagnosticTelemetry
+from enterprise_agent_platform.platform.telemetry_service import create_telemetry_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +130,7 @@ def build_attempt_request(
     workspace_size: str = "128Mi",
     tmp_size: str = "64Mi",
     bootstrap_token: str | None = None,
+    extra_env: tuple[tuple[str, str], ...] = (),
 ) -> AttemptJobRequest:
     """Map a claimed DispatchTicket to the K8s Attempt Job spec.
 
@@ -158,6 +161,7 @@ def build_attempt_request(
         service_account_name=service_account,
         runtime_class_name=runtime_class,
         bootstrap_token=bootstrap_token,
+        extra_env=extra_env,
     )
 
 
@@ -183,6 +187,7 @@ class K8sJobDispatchRunner:
         runtime_class: str | None = None,
         active_deadline_seconds: int = 300,
         bootstrap_token: str | None = None,
+        telemetry: DiagnosticTelemetry | None = None,
     ) -> None:
         self._orchestrator = orchestrator
         self._image = image
@@ -192,8 +197,25 @@ class K8sJobDispatchRunner:
         self._runtime_class = runtime_class
         self._active_deadline_seconds = active_deadline_seconds
         self._bootstrap_token = bootstrap_token
+        self._telemetry = telemetry
 
     async def execute(self, ticket: DispatchTicket) -> None:
+        import time as _time
+
+        # Phase 4.3: inherit the observability env contract so runner Pods
+        # export OTLP spans/metrics + JSON logs into the same stack.
+        extra_env = tuple(
+            (key, value)
+            for key, value in (
+                ("AGENT_PLATFORM_OTLP_ENDPOINT", _env("AGENT_PLATFORM_OTLP_ENDPOINT")),
+                ("AGENT_PLATFORM_JSON_LOGS", _env("AGENT_PLATFORM_JSON_LOGS")),
+                (
+                    "AGENT_PLATFORM_PROMETHEUS_ENABLED",
+                    _env("AGENT_PLATFORM_PROMETHEUS_ENABLED"),
+                ),
+            )
+            if value
+        )
         request = build_attempt_request(
             ticket,
             image=self._image,
@@ -204,8 +226,34 @@ class K8sJobDispatchRunner:
             active_deadline_seconds=self._active_deadline_seconds,
             bootstrap_token=self._bootstrap_token
             or f"projected:{ticket.tenant_id}",
+            extra_env=extra_env,
         )
+        started = _time.perf_counter()
+        tele = self._telemetry
         job_name = await self._orchestrator.submit(request)
+        if tele is not None:
+            trace = tele.begin_trace()
+            try:
+                with tele.span(
+                    "job.submit",
+                    attributes={
+                        "agent.platform.run.id": ticket.run_id,
+                        "agent.platform.attempt.id": ticket.attempt_id,
+                        "agent.platform.lease.generation": ticket.generation,
+                    },
+                    trace=trace,
+                ):
+                    pass
+            except Exception:  # noqa: BLE001, S110 - diagnostics never gate dispatch
+                pass
+            try:
+                tele.timing(
+                    "agent_platform_job_submit_seconds",
+                    _time.perf_counter() - started,
+                    labels={"operation": "job.submit"},
+                )
+            except Exception:  # noqa: BLE001, S110 - diagnostics never gate dispatch
+                pass
         logger.info(
             "Submitted Attempt Job: run=%s attempt=%s generation=%d job=%s ns=%s",
             ticket.run_id,
@@ -277,7 +325,10 @@ def create_k8s_worker_scheduler(
     runtime_class = runtime_class_raw or None
 
     store = store or create_worker_store()
-    control = ControlPlaneService(store)
+    telemetry = create_telemetry_from_env(
+        service_name="enterprise-agent-platform-worker"
+    )
+    control = ControlPlaneService(store, telemetry=telemetry)
     k8s = orchestrator or KubernetesOrchestrator(
         make_k8s_batch_client(),
         timeout_seconds=_env_float("AGENT_PLATFORM_K8S_API_TIMEOUT", 30.0),
@@ -292,6 +343,7 @@ def create_k8s_worker_scheduler(
         active_deadline_seconds=_env_int(
             "AGENT_PLATFORM_SANDBOX_ATTEMPT_DEADLINE_SECONDS", 300
         ),
+        telemetry=telemetry,
     )
     return SchedulerService(
         store=store,
@@ -300,6 +352,7 @@ def create_k8s_worker_scheduler(
         poll_interval=poll_interval
         if poll_interval is not None
         else _env_float("AGENT_PLATFORM_WORKER_POLL_INTERVAL", 2.0),
+        telemetry=telemetry,
     )
 
 

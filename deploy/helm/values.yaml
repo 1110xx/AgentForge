@@ -172,6 +172,22 @@ integration:
   containerFactory: enterprise_agent_platform.reference.k8s_container:create_container
   workerFactory: enterprise_agent_platform.execution.k8s_worker:run_worker
 
+# Phase 4.3 (G5) observability wiring: when enabled, the API and orchestrator
+# pods (and, through the worker, each attempt Runner Pod) export OTLP
+# traces/metrics to the collector and emit structured JSON logs for Loki.
+# The collector itself is deployed from deploy/observability/ (standalone stack
+# or the otel-collector.yaml single file); this section only wires the
+# endpoints into the workloads.
+observability:
+  enabled: false
+  # OTLP/HTTP base URL of the collector Service.
+  otlpEndpoint: ""
+  # Structured JSON logs (trace_id / run_id / attempt_id correlation fields).
+  jsonLogs: false
+  # Expose the process-local Prometheus registry (also scraped by the
+  # collector prometheus exporter on :9464).
+  prometheusExporter: false
+
 sandbox:
   namespace: agent-platform-sandbox
   serviceAccountName: agent-platform-sandbox

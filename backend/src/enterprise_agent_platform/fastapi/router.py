@@ -149,6 +149,11 @@ def create_agent_platform_router(container: AgentPlatformContainer) -> APIRouter
             key,
             authorization=authority,
         )
+        # Log correlation: from this point, in-request logs carry the run_id so
+        # Loki lines for this Run join to the Tempo spans (traces ↔ logs 一 key).
+        from enterprise_agent_platform.platform.logging_json import set_run_id
+
+        set_run_id(run.run_id)
         snapshot = await query.get_snapshot(ctx.tenant_id, run.run_id)
         response.headers["Location"] = f"/v1/runs/{run.run_id}"
         return snapshot

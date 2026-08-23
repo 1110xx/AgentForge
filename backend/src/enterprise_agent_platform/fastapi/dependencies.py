@@ -29,6 +29,7 @@ from enterprise_agent_platform.integration.host import (
 from enterprise_agent_platform.persistence.protocol import PlatformStore
 from enterprise_agent_platform.platform.config_reader import AppConfig, ConfigReader
 from enterprise_agent_platform.platform.provider_factory import ProviderFactory
+from enterprise_agent_platform.platform.telemetry import DiagnosticTelemetry
 
 from .sse import PollingRunEventNotifier, RunEventNotifier
 
@@ -86,6 +87,7 @@ class AgentPlatformContainer:
     artifact_downloads: ArtifactDownloadAuthorizer | None = None
     run_sessions: RunSessionProvider | None = None
     followups: FollowupHandler | None = None
+    telemetry: DiagnosticTelemetry | None = None
 
     def __post_init__(self) -> None:
         if self.host_port_timeout_seconds <= 0:

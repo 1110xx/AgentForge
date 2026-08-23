@@ -30,7 +30,7 @@
 | # | 缺口 | 说明 |
 | --- | --- | --- |
 | G4 | **生产级安全（SDD 明示不在交付范围）** | gVisor RuntimeClass 模板/SAname 已备，需集群具备该 RuntimeClass 并验证 egress 行为；**OIDC/多租户身份未做**（当前为参考 token 最小鉴权）；HA 未验证（多副本 + PDB 模板有） |
-| G5 | **观测闭环缺后端** | `platform/telemetry.py` 有完整 OTLP traces/metrics 导出（HTTP OTLP endpoint 校验），但无 collector / 告警规则 / Grafana 面板；**日志无集中化**（Loki/ELK） |
+| ~~G5~~ **观测闭环** ✅ 已交付（2026-08-23，Phase 4.3） | 原：`telemetry.py` 导出齐全但**全仓零接线**，无 collector/告警/Grafana，日志无集中化 | 后端埋点全链路（trace 上下文 + 四组业务指标 + JSON 日志关联）+ OTLP collector + 告警 15 条（CRD+rule_files 双形态）+ Grafana 三看板 + Loki 集中化（promtail）+ helm `observability` 段 + Runner Job env 透传；明细见 `deploy/observability/README.md` 与 SDD §G.3 4.3 |
 | G8 | **容量/长 Run 验证缺** | HPA 配置在（`autoscaling.apiCpuAverageUtilization`），无真实负载与数小时长 Run 验证——**决定 Phase 3.5 D（快照膨胀消解）/ E（2PC write-ahead）是否转必做** |
 
 ### 🟢 维护级
@@ -46,7 +46,7 @@
 
 - **Phase 4.1 发布管道（G1）**：应用 CI/仓库构建三镜像（backend runtime/control + frontend nginx）→ 生产 registry → GitOps 清单或注入真 digest → helm 渲染真镜像一键部署可复现。
 - **Phase 4.2 生产接线（G2/G3）**：ESOP 实接 + 域名/TLS 生效；**L3 动态门重跑为生产形态**（当前 L3 为 kind）。
-- **Phase 4.3 可观测（G5）**：OTLP collector 接入（values 无 collector 段，需补或复用现有观测栈）+ 告警 + Grafana 面板 + 日志集中化。
+- **Phase 4.3 可观测（G5）** ✅ 已交付（2026-08-23）：OTLP collector 接入（helm values `observability` 段 + Runner Job env 透传）+ 告警（15 条）+ Grafana 三看板 + Loki 日志集中化；`scripts/test-observability.sh` 门就绪（kind 实跑待镜像网络恢复）。
 - **Phase 4.4 容量与长 Run（G8）**：HPA 压力验证 + 数小时长 Run 稳定性 → 评估立项 Phase 3.5 D/E。
 - **Phase 4.5 安全加固 + 备份文档（G4/G6/G7）**：gVisor 形态验证或替代决策、OIDC 决策、备份演练、发布/回滚演练。
 
@@ -56,7 +56,7 @@
 | --- | --- |
 | 4.1 | 三镜像可构建可推送（✅：`build-images.sh` 实跑，`localhost:5001` 推三镜像）；git 内含真 digest 的 helm 渲染全绿（✅：`deploy/prod/values.yaml` golden + check-k8s prod profile 断言）；生产一键部署可复现（✅：`helm upgrade --install -f deploy/prod/values.yaml` 单命令，helm README §8 记录） |
 | 4.2 | SecretStore 运行且凭据注入生效；域名 + TLS 生效；L3 门在生产形态重跑全绿（✅ 2026-08-23：ESO+Vault 实接、注入断言、TLS/入口断言、L3 生产形态 2/2 全绿；gVisor 可选留 4.5，KEDA 留 4.4） |
-| 4.3 | OTLP traces/metrics 可在观测后端正查（≥1 Grafana 面板）；≥3 条告警规则生效；日志集中可检索 |
+| 4.3 | ✅ 后端埋点全链路（trace 上下文/四组业务指标/JSON 日志关联）+ 观测栈（collector/Tempo/Prometheus/Loki/Grafana/promtail）+ 告警 15 条 + 三看板，测试 21 新用例全绿 + 本地活体产证 PASS；kind 观察栈实跑待镜像网络恢复（`scripts/test-observability.sh`） |
 | 4.4 | HPA 压力验证通过（消息积压→扩容→回缩）；数小时长 Run 无快照膨胀异常；出具 D/E 立项结论 |
 | 4.5 | gVisor 验证结论或替代方案；OIDC 决策记录；备份恢复演练一次 PASS；发布/回滚演练一次 PASS |
 

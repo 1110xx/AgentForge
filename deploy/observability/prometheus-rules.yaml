@@ -1,65 +1,133 @@
-apiVersion:monitoring.coreos.com/v1
-kind:PrometheusRule
+# PrometheusRule CRD (monitoring.coreos.com/v1) — same alert set as
+# deploy/observability/prometheus-rules-classic.yaml, packaged for the
+# kube-prometheus-stack / prometheus-operator route. Namespace is the platform
+# control-plane namespace so ``ruleSelector`` targeting the platform chart works
+# out of the box; adjust to your tenant namespace when the operator is shared.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
 metadata:
-name:enterprise-agent-platform
-namespace:agent-platform-control
+  name: enterprise-agent-platform
+  namespace: agent-platform-control
+  labels:
+    app.kubernetes.io/name: enterprise-agent-platform
+    app.kubernetes.io/part-of: agent-platform
 spec:
-    groups:
-    name:agent-platform,correctness
-        interval:15s
-        rules:
-        alert:AgentPlatformUnauthorizedwrite
-        expr:increase(agent_platform_correctness_violation_total(reason_class="unauthorized_write"}[1m])>0
-        for:0m
-        labels:(severity:page)
-        annotations:
-            summary: Unauthorized wRITE crossed the Tool Gateway boundary.
-        alert:AgentPlatformDuplicateEffect
-        for:om
-        labels:(severity:page)
-        annotations:
-            summary:A committed external Effect was observed more than once.
-        alert:AgentPlatformAuditBypass
-        expr:increase(agent_platform_correctness_violation_total(reason_class="audit_bypass"}[1m])>0
-            for:0m
-            labels:(severity:page}
-            annotations:
-            summary:A protected state change lacks its atomicaudit fact.
-        alert:AgentPlatformStalefencewrite
-            expr:increase(agent_platform_correctness_violation_total(reason_class="stale_fence_write"}[1m])>0
-            for:0m
-            labels:{severity:page)
-            annotations:
-            summary:A stale Attempt generation changed durable state.
-            alert:AgentPlatformCommittedDataloss
-            expr:sum(increase(agent_platform_correctness_violation_total(reason_class="committed_checkpoint_lost|artifact_checksum_mismatch")[1ml))
-            for:0m
-            labels:(severity:page)
-            annotations:
-            summary:A committed Checkpoint or Artifact cannot be read and verified.
-            alert:AgentPlatformCrossTenantAccess
-            expr:increase(agent_platform_correctness_violation_total{reason_class="cross_tenant_access"}[1m])>0
-            for:0m
-            labels:(severity:page}
-            annotations:
-            summary:A request crossed its trusted tenant boundary.
-            alert:AgentPlatformMultipleActiveAttempts
-            expr:increase(agent_platform_correctness_violation_total{reason_class="multiple_active_attempts">{lm])>
-            for:om
-            labels:(severity:page)
-            annotations:
-            summary:One execution unit has multiple concurrently active Attempts.
-        name:agent-platform.slo-burn
-        interval:30s
-        rules:
-            alert:AgentPlatformAvailabilityBurnRateFast
-            expr:agent_platform:http_error_ratio_5m>(14.4*0.001)
-            for:2m
-            labels:(severity:page)
-            annotations:
-            alert:AgentPlatformAvailabilityBurnRateSlow
-            expr:agent_platform:http_error_ratio_6h>(6*0.001)
-            for:15m
-            labels:{severity:page}
-            annotations:
+  groups:
+    - name: agent-platform.correctness
+      interval: 15s
+      rules:
+        - alert: AgentPlatformUnauthorizedWrite
+          expr: increase(agent_platform_correctness_violation_total{reason_class="unauthorized_write"}[1m]) > 0
+          for: 0m
+          labels:
+            severity: page
+          annotations:
+            summary: Unauthorized WRITE crossed the Tool Gateway boundary.
+        - alert: AgentPlatformDuplicateEffect
+          expr: increase(agent_platform_correctness_violation_total{reason_class="duplicate_effect"}[1m]) > 0
+          for: 0m
+          labels:
+            severity: page
+          annotations:
+            summary: A committed external Effect was observed more than once.
+        - alert: AgentPlatformAuditBypass
+          expr: increase(agent_platform_correctness_violation_total{reason_class="audit_bypass"}[1m]) > 0
+          for: 0m
+          labels:
+            severity: page
+          annotations:
+            summary: A protected state change lacks its atomic audit fact.
+        - alert: AgentPlatformStaleFenceWrite
+          expr: increase(agent_platform_correctness_violation_total{reason_class="stale_fence_write"}[1m]) > 0
+          for: 0m
+          labels:
+            severity: page
+          annotations:
+            summary: A stale Attempt generation changed durable state.
+        - alert: AgentPlatformCommittedDataLoss
+          expr: sum(increase(agent_platform_correctness_violation_total{reason_class=~"committed_checkpoint_lost|artifact_checksum_mismatch"}[1m])) > 0
+          for: 0m
+          labels:
+            severity: page
+          annotations:
+            summary: A committed Checkpoint or Artifact cannot be read and verified.
+        - alert: AgentPlatformCrossTenantAccess
+          expr: increase(agent_platform_correctness_violation_total{reason_class="cross_tenant_access"}[1m]) > 0
+          for: 0m
+          labels:
+            severity: page
+          annotations:
+            summary: A request crossed its trusted tenant boundary.
+        - alert: AgentPlatformMultipleActiveAttempts
+          expr: increase(agent_platform_correctness_violation_total{reason_class="multiple_active_attempts"}[1m]) > 0
+          for: 0m
+          labels:
+            severity: page
+          annotations:
+            summary: One execution unit has multiple concurrently active Attempts.
+    - name: agent-platform.slo-burn
+      interval: 30s
+      rules:
+        - alert: AgentPlatformAvailabilityBurnRateFast
+          expr: agent_platform:http_error_ratio_5m > (14.4 * 0.001)
+          for: 2m
+          labels:
+            severity: page
+          annotations:
+            summary: API availability is burning the monthly error budget fast.
+        - alert: AgentPlatformAvailabilityBurnRateSlow
+          expr: agent_platform:http_error_ratio_6h > (6 * 0.001)
+          for: 15m
+          labels:
+            severity: page
+          annotations:
             summary: API availability is burning the monthly error budget at 6x.
+    - name: agent-platform.business
+      interval: 30s
+      rules:
+        - alert: AgentPlatformRunFailureRatioHigh
+          expr: |
+            rate(agent_platform_run_lifecycle_total{state="failed"}[5m])
+            / clamp_min(
+                rate(agent_platform_run_lifecycle_total{state=~"succeeded|failed"}[5m]),
+                1.0)
+            > 0.10
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Run failure ratio exceeded 10% over the last 5 minutes.
+        - alert: AgentPlatformQueueBacklogHigh
+          expr: agent_platform_queue_backlog > 5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Dispatch queue backlog is not draining — workers or capacity are insufficient.
+        - alert: AgentPlatformModelErrorRatioHigh
+          expr: |
+            rate(agent_platform_model_errors_total[5m])
+            / clamp_min(rate(agent_platform_model_calls_total[5m]), 1.0)
+            > 0.20
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Model provider error ratio exceeded 20% over the last 5 minutes.
+        - alert: AgentPlatformApiP95LatencyHigh
+          expr: |
+            histogram_quantile(0.95,
+              sum by (le) (rate(agent_platform_http_latency_seconds_bucket[5m])))
+            > 2.0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: API p95 latency exceeded 2s over the last 5 minutes.
+        - alert: AgentPlatformLeaseExpirySpike
+          expr: increase(agent_platform_lease_failures_total{reason_class="lease_expired"}[5m]) > 0
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: Runtime lease renewals are expiring — runners are starving or unhealthy.

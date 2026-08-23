@@ -1,0 +1,139 @@
+# Grafana (unified dashboards). Datasources: Prometheus (metrics), Loki (logs),
+# Tempo (traces). Provisioned dashboards: platform overview, single-run trace
+# (logs + traces by run_id), model cost/capacity + dependency health.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-platform-grafana-provisioning
+  namespace: agent-platform-observability
+  labels:
+    app.kubernetes.io/name: agent-platform-grafana
+data:
+  datasources.yaml: |-
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        uid: prometheus
+        type: prometheus
+        access: proxy
+        url: http://agent-platform-prometheus.agent-platform-observability:9090
+        isDefault: true
+      - name: Loki
+        uid: loki
+        type: loki
+        access: proxy
+        url: http://agent-platform-loki.agent-platform-observability:3100
+      - name: Tempo
+        uid: tempo
+        type: tempo
+        access: proxy
+        url: http://agent-platform-tempo.agent-platform-observability:3200
+  dashboards.yaml: |-
+    apiVersion: 1
+    providers:
+      - name: agent-platform
+        orgId: 1
+        folder: Agent Platform
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards
+---
+# The `agent-platform-grafana-dashboards` ConfigMap referenced below is created
+# by scripts/test-observability.sh from deploy/observability/dashboards/*.json
+# (kubectl create configmap --from-file) so the JSON files stay the single
+# source of truth for the three dashboards.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-platform-grafana
+  namespace: agent-platform-observability
+  labels:
+    app.kubernetes.io/name: agent-platform-grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform-grafana
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent-platform-grafana
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 472
+        fsGroup: 472
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.2.2
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: admin
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: admin
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "true"
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 3000
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1024Mi
+          volumeMounts:
+            - name: provisioning
+              mountPath: /etc/grafana/provisioning
+              readOnly: true
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+              readOnly: true
+            - name: storage
+              mountPath: /var/lib/grafana
+      volumes:
+        - name: provisioning
+          configMap:
+            name: agent-platform-grafana-provisioning
+        - name: dashboards
+          configMap:
+            name: agent-platform-grafana-dashboards
+        - name: storage
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-platform-grafana
+  namespace: agent-platform-observability
+  labels:
+    app.kubernetes.io/name: agent-platform-grafana
+spec:
+  selector:
+    app.kubernetes.io/name: agent-platform-grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http

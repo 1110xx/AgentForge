@@ -9,7 +9,8 @@
     "secrets",
     "integration",
     "sandbox",
-    "autoscaling"
+    "autoscaling",
+    "observability"
   ],
   "properties": {
     "images": {
@@ -280,6 +281,33 @@
         "workerFactory": {
           "type": "string",
           "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$"
+        }
+      }
+    },
+    "observability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "otlpEndpoint",
+        "jsonLogs",
+        "prometheusExporter"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "otlpEndpoint": {
+          "type": "string"
+        },
+        "jsonLogs": {
+          "type": "boolean",
+          "default": false
+        },
+        "prometheusExporter": {
+          "type": "boolean",
+          "default": false
         }
       }
     },

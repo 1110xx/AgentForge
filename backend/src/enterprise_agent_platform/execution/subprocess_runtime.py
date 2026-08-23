@@ -428,6 +428,11 @@ def _emit_response_events(
 
 
 async def _main() -> int:
+    from enterprise_agent_platform.platform.logging_json import (
+        install_json_logs_if_enabled,
+    )
+
+    install_json_logs_if_enabled()
     attempt_id = os.environ.get("AGENT_PLATFORM_ATTEMPT_ID", "")
     generation_raw = os.environ.get("AGENT_PLATFORM_GENERATION", "1")
     if not attempt_id:

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextlib import nullcontext
 from dataclasses import fields, is_dataclass, replace
 from datetime import datetime, timedelta
 from enum import Enum
@@ -46,8 +47,46 @@ from enterprise_agent_platform.persistence.protocol import (
     PlatformStore,
     PlatformTransaction,
 )
+from enterprise_agent_platform.platform.telemetry import (
+    CorrectnessSignal,
+    DiagnosticTelemetry,
+)
+from enterprise_agent_platform.platform.telemetry_service import current_request_span
 
 from .context import RequestContext
+
+
+def _maybe_span(
+    telemetry: DiagnosticTelemetry | None,
+    name: str,
+    **kwargs: object,
+):
+    """``telemetry.span`` or a null context when diagnostics are off."""
+    if telemetry is None:
+        return nullcontext()
+    return telemetry.span(name, **kwargs)
+
+
+def _record(
+    telemetry: DiagnosticTelemetry | None,
+    call=lambda: None,  # pragma: no cover - default no-op
+) -> None:
+    """Best-effort diagnostics: telemetry must never gate business commits."""
+    if telemetry is None:
+        return
+    try:
+        call()
+    except Exception:  # noqa: BLE001, S110 - diagnostics must never gate business commits
+        pass
+
+
+_LEASE_FAILURE_REASON = {
+    "LEASE_EXPIRED": "lease_expired",
+    "LEASE_NOT_ACTIVE": "lease_expired",
+    "LEASE_OWNER_MISMATCH": "stale_fence_write",
+    "VERSION_CONFLICT": "checkpoint_conflict",
+    "STALE_GENERATION": "stale_generation",
+}
 
 
 def _request_digest(ctx: RequestContext, operation: str, payload: object) -> str:
@@ -264,6 +303,7 @@ class ControlPlaneService:
         fsm_version: str = "fsm/v1",
         provision_window: timedelta = timedelta(minutes=10),
         lease_ttl: timedelta = timedelta(minutes=2),
+        telemetry: DiagnosticTelemetry | None = None,
     ) -> None:
         if provision_window <= timedelta(0) or lease_ttl <= timedelta(0):
             raise ValueError("provision_window and lease_ttl must be positive")
@@ -272,8 +312,37 @@ class ControlPlaneService:
         self._fsm_version = fsm_version
         self._provision_window = provision_window
         self._lease_ttl = lease_ttl
+        self._telemetry = telemetry
 
     async def create_run(
+        self,
+        ctx: RequestContext,
+        command: CreateRunCommand,
+        idempotency_key: str,
+        authorization: RunAuthorizationContext | None = None,
+    ) -> RunRecord:
+        tele = self._telemetry
+        trace = tele.begin_trace(trace_id=ctx.trace_id) if tele is not None else None
+        parent = None
+        if trace is not None:
+            request_span = current_request_span()
+            if request_span is not None and request_span.trace_id == trace.trace_id:
+                parent = request_span
+        with _maybe_span(
+            tele,
+            "run.created",
+            attributes={
+                "agent.platform.tenant.id": ctx.tenant_id,
+                "agent.platform.workflow.class": command.workflow_type,
+            },
+            trace=trace,
+            parent=parent,
+        ):
+            return await self._create_run_impl(
+                ctx, command, idempotency_key, authorization
+            )
+
+    async def _create_run_impl(
         self,
         ctx: RequestContext,
         command: CreateRunCommand,
@@ -315,6 +384,14 @@ class ControlPlaneService:
                 "run-record/v1",
                 _record_payload(run),
                 now,
+            )
+            _record(
+                self._telemetry,
+                lambda: self._telemetry.record_metric(  # type: ignore[union-attr]
+                    "agent_platform_run_lifecycle_total",
+                    1.0,
+                    labels={"state": "queued"},
+                ),
             )
             return run
 
@@ -481,6 +558,17 @@ class ControlPlaneService:
                 _record_payload(AttemptReservation(attempt=attempt, lease=lease)),
                 now,
             )
+            _record(
+                self._telemetry,
+                lambda: self._telemetry.record_metric(  # type: ignore[union-attr]
+                    "agent_platform_attempts_total",
+                    1.0,
+                    labels={
+                        "operation": "attempt.reserved",
+                        "state": "provisioning",
+                    },
+                ),
+            )
             return AttemptReservation(attempt=attempt, lease=lease)
 
     async def activate_lease(
@@ -625,9 +713,67 @@ class ControlPlaneService:
                 await tx.append_event(event, expected_previous_seq=previous_seq)
                 previous_seq = event.event_seq
             await tx.insert_outbox(outbox)
+            if next_run_status is RunState.RUNNING:
+                _record(
+                    self._telemetry,
+                    lambda: self._telemetry.record_metric(  # type: ignore[union-attr]
+                        "agent_platform_run_lifecycle_total",
+                        1.0,
+                        labels={"state": "running"},
+                    ),
+                )
+                _record(
+                    self._telemetry,
+                    lambda: self._telemetry.timing(  # type: ignore[union-attr]
+                        "agent_platform_queue_latency_seconds",
+                        (now - run.created_at).total_seconds(),
+                        labels={
+                            "state": "running",
+                            "operation": "lease.acquire",
+                        },
+                    ),
+                )
             return active_lease
 
     async def renew_lease(
+        self,
+        ctx: RequestContext,
+        attempt_id: str,
+        generation: int,
+        owner: str,
+        expected_lease_version: int,
+    ) -> ExecutionLeaseRecord:
+        tele = self._telemetry
+        try:
+            return await self._renew_lease_impl(
+                ctx, attempt_id, generation, owner, expected_lease_version
+            )
+        except PlatformError as error:
+            if tele is not None:
+                reason = _LEASE_FAILURE_REASON.get(error.code)
+                if reason is not None:
+                    _record(
+                        tele,
+                        lambda: tele.record_metric(
+                            "agent_platform_lease_failures_total",
+                            1.0,
+                            labels={"reason_class": reason},
+                        ),
+                    )
+                if error.code == "STALE_GENERATION":
+                    _record(
+                        tele,
+                        lambda: tele.record_zero_tolerance(
+                            CorrectnessSignal.STALE_FENCE_WRITE,
+                            attributes={
+                                "agent.platform.attempt.id": attempt_id,
+                                "agent.platform.lease.generation": generation,
+                            },
+                        ),
+                    )
+            raise
+
+    async def _renew_lease_impl(
         self,
         ctx: RequestContext,
         attempt_id: str,
@@ -771,6 +917,14 @@ class ControlPlaneService:
                 "run-record/v1",
                 _record_payload(cancelled),
                 now,
+            )
+            _record(
+                self._telemetry,
+                lambda: self._telemetry.record_metric(  # type: ignore[union-attr]
+                    "agent_platform_run_lifecycle_total",
+                    1.0,
+                    labels={"state": "cancelled"},
+                ),
             )
             return cancelled
 

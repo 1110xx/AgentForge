@@ -12,7 +12,7 @@
 | 版本 | 0.2.0（appVersion 0.1.0，v0.2.0 起：resources/probes 参数化、可选中 ingress/TLS、可选 PVC、schema 全量同步、静态门加 helm lint 双 profile） |
 | 目标命名空间 | `agent-platform-control`（控制面）/ `agent-platform-sandbox`（Attempt 沙箱） |
 | 安装的组件 | API Deployment、Orchestrator(worker) Deployment、migrate Job(hook)、Service、HPA、KEDA ScaledObject、Namespace/SA/RBAC、NetworkPolicy、PDB、PriorityClass、ResourceQuota、可选 RuntimeClass / Ingress / PVC |
-| **不安装**（外部托管依赖） | PostgreSQL、NATS JetStream、S3/MinIO、OIDC、External Secrets Operator、KEDA、OTel 后端 |
+| **不安装**（外部托管依赖） | PostgreSQL、NATS JetStream、S3/MinIO、OIDC、External Secrets Operator、KEDA、可观测后端（collector/Tempo/Loki/Prometheus/Grafana，见 `deploy/observability/`） |
 
 一次生产渲染生成 **33 个 manifest**（含 ExternalSecret + RuntimeClass + HPA + ScaledObject）；
 kind 开发渲染 **29 个**；开启 Ingress+PVC 的扩展渲染 **31 个**。
@@ -204,6 +204,17 @@ Phase 3.6：`frontend.enabled=true` 时（也要求 `ingress.enabled=true`）Ing
 路径前缀分流，API 与静态站点互不干扰。SSE 反缓冲：该 profile 下 Ingress
 annotations 注入 `nginx.ingress.kubernetes.io/proxy-buffering: "off"`（用户 annotations
 会被保留并叠加）。
+
+### 2.11 `observability` — 观测接线（Phase 4.3 G5，可选，默认关）
+
+| 键 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `observability.enabled` | bool | `false` | 开启时给 api/orchestrator 注入 `AGENT_PLATFORM_OTLP_ENDPOINT`（与 `AGENT_PLATFORM_PROMETHEUS_ENABLED`）；无论开关，`AGENT_PLATFORM_JSON_LOGS` 始终注入（默认 `false`） |
+| `observability.otlpEndpoint` | string | `""` | OTLP/HTTP collector 基址，如 `http://agent-platform-otel-collector.agent-platform-observability:4318` |
+| `observability.jsonLogs` | bool | `false` | 结构化 JSON 日志（stdout 单行 JSON，含 `trace_id`/`run_id`/`attempt_id` 关联字段，供 Loki 检索） |
+| `observability.prometheusExporter` | bool | `false` | 该进程暴露本地 Prometheus registry（collector prometheus exporter 已聚合全部 OTLP 指标，通常无需单独 scrape） |
+
+Runner（Attempt Pod）的观测注入走 worker 透传：`K8sJobDispatchRunner` 把 worker 进程的 `AGENT_PLATFORM_OTLP_ENDPOINT`/`AGENT_PLATFORM_PROMETHEUS_ENABLED`/`AGENT_PLATFORM_JSON_LOGS` 写进 Job 环境，所以 sandbox Pod 的 `runtime.bootstrap`/`checkpoint.commit` span 与 API 侧同栈。观测后端（collector/Tempo/Loki/Prometheus/Grafana)不由此 chart 安装——见 `deploy/observability/README.md`。
 
 ### 2.10 `frontend` — 前端工作负载（Phase 3.6，可选，默认关）
 

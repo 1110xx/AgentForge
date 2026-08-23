@@ -33,6 +33,11 @@ class AttemptJobRequest:
     # real K8s service-account projection validation; when unset the Pod falls
     # back to reading the projected SA token volume.
     bootstrap_token: str | None = None
+    # Phase 4.3 (G5): extra env passthrough so runner Pods inherit the
+    # observability contract (AGENT_PLATFORM_OTLP_ENDPOINT / JSON_LOGS /
+    # PROMETHEUS_ENABLED) from the worker, turning the runtime's per-attempt
+    # spans into the same trace + log stream the control plane exports.
+    extra_env: tuple[tuple[str, str], ...] = ()
 
 
 def _job_name(attempt_id: str) -> str:
@@ -110,6 +115,9 @@ def build_attempt_job(request: AttemptJobRequest) -> dict[str, Any]:
                                     ]
                                     if request.bootstrap_token
                                     else []
+                                ),
+                                *(
+                                    [{"name": key, "value": value} for key, value in request.extra_env]
                                 ),
                             ],
                             "resources": {

@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHttpException
 
 from enterprise_agent_platform.contracts.errors import ApiErrorEnvelope
@@ -113,12 +114,100 @@ def _platform_status(error: PlatformError) -> int:
     return 500
 
 
+def _telemetry_middleware_factory(telemetry: object) -> type:
+    """FastAPI middleware capturing API RED metrics + an http.request span.
+
+    Metrics per SDD G.4 ②: ``agent_platform_http_requests_total{http.route,
+    http.status_class, outcome}`` + ``agent_platform_http_latency_seconds``
+    (histogram → p50/p95/p99). The request becomes the root of the run trace:
+    downstream ``run.created`` nests under it (same trace_id via traceparent).
+    Log correlation: the trace_id ContextVar is set for the request duration.
+    """
+    from enterprise_agent_platform.platform import logging_json
+    from enterprise_agent_platform.platform.telemetry_service import (
+        http_route_bucket,
+        http_status_class,
+        request_span_context,
+    )
+
+    class TelemetryMiddleware:
+        def __init__(self, app: object) -> None:
+            self.app = app
+
+        async def __call__(self, scope: dict, receive: object, send: object) -> None:
+            if scope["type"] != "http":
+                await self.app(scope, receive, send)
+                return
+            request = Request(scope, receive)
+            trace_id = request_trace_id(request)
+            trace_root = telemetry.begin_trace(trace_id=trace_id)
+            route = http_route_bucket(request.url.path)
+            started = time.perf_counter()
+            status_class = "5xx"
+            outcome = "error"
+
+            async def _send(message: dict) -> None:
+                nonlocal status_class, outcome
+                if message["type"] == "http.response.start":
+                    status_class = http_status_class(message["status"])
+                    outcome = (
+                        "ok"
+                        if status_class == "2xx"
+                        else "redirect"
+                        if status_class == "3xx"
+                        else "error"
+                    )
+                await send(message)
+
+            with request_span_context(trace_root), logging_json.correlation(
+                trace_id=trace_id
+            ):
+                if hasattr(telemetry, "span"):
+                    with telemetry.span(
+                        "http.request",
+                        attributes={"agent.platform.http.route": route},
+                        trace=trace_root,
+                    ):
+                        await self.app(scope, receive, _send)
+                else:
+                    await self.app(scope, receive, _send)
+                # Structured access-log: every request yields one JSON line that
+                # carries the trace_id correlation (Loki join key ↔ Tempo span).
+                _logger.info(
+                    "api %s %s -> %s in %.3fs",
+                    request.method,
+                    route,
+                    status_class,
+                    time.perf_counter() - started,
+                )
+            duration = time.perf_counter() - started
+            telemetry.record_metric(
+                "agent_platform_http_requests_total",
+                1.0,
+                labels={
+                    "http.route": route,
+                    "http.status_class": status_class,
+                    "outcome": outcome,
+                },
+            )
+            telemetry.timing(
+                "agent_platform_http_latency_seconds",
+                duration,
+                labels={"http.route": route, "http.status_class": status_class},
+            )
+
+    return TelemetryMiddleware
+
+
 def create_agent_platform_app(container: AgentPlatformContainer) -> FastAPI:
     app = FastAPI(
         title="Enterprise Agent Platform API",
         version="0.1.0",
         openapi_version="3.1.0",
     )
+
+    if container.telemetry is not None:
+        app.add_middleware(_telemetry_middleware_factory(container.telemetry))
 
     @app.exception_handler(HostPortError)
     async def host_error(request: Request, error: HostPortError) -> JSONResponse:
@@ -190,6 +279,26 @@ def create_agent_platform_app(container: AgentPlatformContainer) -> FastAPI:
         )
 
     app.include_router(create_agent_platform_router(container))
+
+    # Phase 4.3 (G5): expose the process-local Prometheus registry when the
+    # prometheus sink is enabled (AGENT_PLATFORM_PROMETHEUS_ENABLED=1). The
+    # collector prometheus exporter and direct pod scrapes both consume this.
+    if container.telemetry is not None:
+        from enterprise_agent_platform.platform.telemetry_service import (
+            prometheus_enabled,
+            prometheus_registry,
+        )
+
+        if prometheus_enabled(container.telemetry):
+            from prometheus_client import generate_latest
+
+            @app.get("/api/agent-platform/v1/metrics", include_in_schema=False)
+            async def metrics() -> Response:
+                registry = prometheus_registry(container.telemetry)
+                return Response(
+                    content=generate_latest(registry).decode(),
+                    media_type="text/plain; version=0.0.4",
+                )
 
     # Mount the Internal Runtime API (SDD §13.1, Phase 3 predecessor): the HTTP
     # transport (K8s/Docker runner) bootstraps and drives the same op handlers

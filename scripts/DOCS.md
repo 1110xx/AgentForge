@@ -17,6 +17,7 @@
 | bootstrap-prod-wiring.sh | 文件 | Phase 4.2 G2/G3 接线：ingress-nginx + ESO + cert-manager + 演示 CA + dev Vault + seed + ClusterSecretStore + ExternalSecret 预置 + round-trip 断言；`--eso-only` 重挂 Secret |
 | test-prod-form.sh | 文件 | Phase 4.2 生产形态动门：golden helm 部署 + G2 注入断言 + G3 TLS/入口断言 + L3 真实 Attempt 测试（2/2） |
 | test-kind.sh | 文件 | 执行 Disposable Kind Sandbox Attempt L3 |
+| test-observability.sh | 文件 | Phase 4.3 G5 可观测动门（--stack-only / 全量）：观察栈 + 平台接线 + 真实 Run → Prometheus 指标 / ≥3 告警规则 / Tempo span / Loki 日志 / Grafana 三看板断言 |
 
 ## 验证状态
 | 门禁 | 脚本 | 状态 |
@@ -27,4 +28,5 @@
 | L3 静态 | check-k8s.sh | 通过（四 profile，prod profile 真 digest 钉死断言） |
 | 镜像发布 | build-images.sh | 通过（三镜像本地构建/推送 + golden digest 写回） |
 | 生产接线门 | test-prod-form.sh | 通过（Phase 4.2 G2/G3 实跑全绿：ESO→Vault 9 键注入 + TLS/入口 + L3 生产形态 2/2；本机 kind 环境） |
+| 可观测门 | test-observability.sh | 已交付（Phase 4.3 G5：脚本 + 后端单测 21 条全绿；kind 实跑见 SDD §G.3 验收记录） |
 | L3 动态 | test-kind.sh | 待运行（需要 kind/helm/kubectl） |

@@ -31,6 +31,7 @@ from enterprise_agent_platform.domain.records import DispatchTicket
 from enterprise_agent_platform.execution.local_runtime import LocalRuntime
 from enterprise_agent_platform.execution.session import RunSessionProvider
 from enterprise_agent_platform.persistence.protocol import PlatformStore
+from enterprise_agent_platform.platform.telemetry import DiagnosticTelemetry
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ class SchedulerService:
     poll_interval: float = 2.0
     worker_id: str = field(default_factory=lambda: f"scheduler:{id(object()):x}")
     idempotency_purge_interval: float = 60.0
+    telemetry: DiagnosticTelemetry | None = None
     _scheduler: FairScheduler = field(init=False, repr=False)
     _runtime: object = field(init=False, repr=False)
     _task: asyncio.Task | None = field(default=None, init=False, repr=False)
@@ -64,7 +66,9 @@ class SchedulerService:
     _last_idempotency_purge: float = field(default=0.0, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, '_scheduler', FairScheduler(self.store, self.control))
+        object.__setattr__(
+            self, '_scheduler', FairScheduler(self.store, self.control, telemetry=self.telemetry)
+        )
         runtime: object
         if self.orchestrator is not None:
             runtime = self.orchestrator
@@ -156,8 +160,30 @@ class SchedulerService:
 
     async def _execute_run(self, ticket: DispatchTicket, dedup_key: str) -> None:
         """Execute one claimed Run in-process."""
+        from enterprise_agent_platform.platform.logging_json import (
+            set_attempt_id,
+            set_run_id,
+        )
+
+        set_run_id(ticket.run_id)
+        set_attempt_id(ticket.attempt_id)
+        tele = self.telemetry
+        trace = tele.begin_trace() if tele is not None else None
         try:
-            await self._runtime.execute(ticket)
+            if tele is not None:
+                with tele.span(
+                    "attempt.dispatch",
+                    attributes={
+                        "agent.platform.run.id": ticket.run_id,
+                        "agent.platform.attempt.id": ticket.attempt_id,
+                        "agent.platform.execution_unit.id": ticket.execution_unit_id,
+                        "agent.platform.lease.generation": ticket.generation,
+                    },
+                    trace=trace,
+                ):
+                    await self._runtime.execute(ticket)
+            else:
+                await self._runtime.execute(ticket)
         except Exception:
             logger.exception("Runtime execution failed for run=%s", ticket.run_id)
         finally:

@@ -453,6 +453,11 @@ def _make_http_stream_fn(client: HttpRuntimeClient) -> StreamFn:
 
 
 async def _main() -> int:
+    from enterprise_agent_platform.platform.logging_json import (
+        install_json_logs_if_enabled,
+    )
+
+    install_json_logs_if_enabled()
     attempt_id = os.environ.get("AGENT_PLATFORM_ATTEMPT_ID", "").strip()
     generation_raw = os.environ.get("AGENT_PLATFORM_GENERATION", "1").strip()
     base_url = os.environ.get("AGENT_PLATFORM_CONTROL_PLANE_URL", "").strip()

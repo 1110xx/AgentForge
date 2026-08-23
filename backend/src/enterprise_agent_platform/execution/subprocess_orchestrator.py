@@ -59,6 +59,7 @@ from enterprise_agent_platform.domain.records import (
     RunRecord,
 )
 from enterprise_agent_platform.execution.completer import RunCompleter
+from enterprise_agent_platform.platform.telemetry import DiagnosticTelemetry
 from enterprise_agent_platform.execution.pipe_transport import (
     OP_BOOTSTRAP,
     OP_COMMIT_CHECKPOINT,
@@ -95,6 +96,7 @@ class SubprocessOrchestrator:
         resource_resolver=None,
         python: str | None = None,
         max_runtime_seconds: float = 120.0,
+        telemetry: DiagnosticTelemetry | None = None,
     ) -> None:
         self._store = store
         self._control = control
@@ -103,7 +105,7 @@ class SubprocessOrchestrator:
         self._python = python or sys.executable
         self._max_runtime_seconds = max_runtime_seconds
         self._max_retries = 2  # max crash-auto-retry count per Attempt
-        self._completer = RunCompleter(store)
+        self._completer = RunCompleter(store, telemetry=telemetry)
         # One model session handle per Run (children are destroyed per attempt,
         # but the parent-side session provider is long-lived).
         self._sessions: dict[str, SessionHandle] = {}

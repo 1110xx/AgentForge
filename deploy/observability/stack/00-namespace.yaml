@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agent-platform-observability
+  labels:
+    app.kubernetes.io/name: agent-platform-observability
+    app.kubernetes.io/part-of: agent-platform
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted

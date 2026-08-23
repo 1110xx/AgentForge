@@ -1,0 +1,130 @@
+# Loki single binary (log centralization backend). Promtail DaemonSets push
+# container logs from the control-plane and sandbox namespaces here; structured
+# JSON fields (trace_id / run_id / attempt_id) become queryable metadata.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-platform-loki
+  namespace: agent-platform-observability
+  labels:
+    app.kubernetes.io/name: agent-platform-loki
+data:
+  config.yaml: |
+    auth_enabled: false
+    common:
+      instance_addr: 127.0.0.1
+      path_prefix: /loki
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks
+          rules_directory: /loki/rules
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+    schema_config:
+      configs:
+        - from: 2024-01-01
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+    limits_config:
+      retention_period: 168h
+      allow_structured_metadata: true
+      volume_enabled: false
+    compactor:
+      working_directory: /loki/compactor
+      compaction_interval: 10m
+    server:
+      http_listen_port: 3100
+    query_scheduler:
+      max_outstanding_requests_per_tenant: 1024
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: agent-platform-loki
+  namespace: agent-platform-observability
+  labels:
+    app.kubernetes.io/name: agent-platform-loki
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform-loki
+  serviceName: agent-platform-loki
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent-platform-loki
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+      containers:
+        - name: loki
+          image: grafana/loki:3.2.1
+          args: ["-config.file=/etc/loki/config.yaml"]
+          ports:
+            - name: http
+              containerPort: 3100
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1024Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki
+              readOnly: true
+            - name: storage
+              mountPath: /loki
+      volumes:
+        - name: config
+          configMap:
+            name: agent-platform-loki
+  volumeClaimTemplates:
+    - metadata:
+        name: storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-platform-loki
+  namespace: agent-platform-observability
+  labels:
+    app.kubernetes.io/name: agent-platform-loki
+spec:
+  selector:
+    app.kubernetes.io/name: agent-platform-loki
+  ports:
+    - name: http
+      port: 3100
+      targetPort: http
