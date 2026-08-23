@@ -34,9 +34,40 @@ spec:
         - namespaceSelector:
             matchLabels:
               agent.platform/plane: sandbox
+        # In-cluster control-plane consumers (frontend reverse proxy in the
+        # frontend profile, Phase 3.6/4.2 G3) reach the API through the same
+        # service port; the plane label keeps the allow-scope inside control.
+        - namespaceSelector:
+            matchLabels:
+              agent.platform/plane: control
       ports:
         - protocol: TCP
           port: 8080
+---
+{{- if .Values.frontend.enabled }}
+# Phase 4.2 prod-form gate catch: control-default-deny also protects the
+# frontend pods, and no policy admitted the ingress controller's reverse
+# proxy into them (root path 504 / api path 200). Allow ingress-nginx on the
+# frontend listener only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: control-frontend-ingress
+  namespace: agent-platform-control
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform-frontend
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+{{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

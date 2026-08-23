@@ -13,10 +13,21 @@ metadata:
     # path (Phase 3.6).
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
     {{- end }}
+    {{- if and .Values.ingress.tls.enabled .Values.ingress.tls.clusterIssuer }}
+    # cert-manager provisions the TLS secret named
+    # {{ .Values.ingress.tls.secretName }} from this issuer (Phase 4.2 G3).
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.tls.clusterIssuer | quote }}
+    {{- end }}
     {{- toYaml .Values.ingress.annotations | nindent 4 }}
   {{- else if .Values.frontend.enabled }}
   annotations:
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    {{- if and .Values.ingress.tls.enabled .Values.ingress.tls.clusterIssuer }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.tls.clusterIssuer | quote }}
+    {{- end }}
+  {{- else if and .Values.ingress.tls.enabled .Values.ingress.tls.clusterIssuer }}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.tls.clusterIssuer | quote }}
   {{- end }}
 spec:
   {{- with .Values.ingress.className }}

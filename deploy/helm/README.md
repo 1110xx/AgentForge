@@ -272,6 +272,21 @@ helm upgrade --install agent-platform deploy/helm --namespace agent-platform-con
   --create-namespace -f deploy/prod/values.yaml
 ```
 
+## 8.6 生产接线实跑门（Phase 4.2 G2/G3）
+
+| 脚本 | 作用 |
+|---|---|
+| `scripts/bootstrap-prod-wiring.sh` | 幂等接线：ingress-nginx(NodePort 30080/30443) + ESO + cert-manager + 演示信任链 + dev Vault + seed + ClusterSecretStore + ExternalSecret 预置 + round-trip 断言（ESO→Secret 9 键与 Vault 逐字节一致）；`--eso-only` 供重装后仅重挂 Secret |
+| `scripts/test-prod-form.sh` | **生产形态 L3 动门**：golden values 部署（helm，host/issuer/沙箱运行时覆写）+ G2 注入断言（api pod env ← Vault，含 DeepSeek 模型 key）+ G3 TLS/入口断言（root+api 200、leaf SAN、CA 链可验、SSE 反缓冲 off）+ 真实 Run→Attempt→SUCCEEDED 测试（2/2） |
+
+实跑中动态门还抓到并修复了四个**静态门覆盖不到**的缺口：
+1. frontend 容器缺 PodSecurity restricted 的 escalation/capabilities 姿态（enforce 拒绝 Pod）→ 模板补全；
+2. 非 root nginx 在受限命名空间无法 bind <1024 → mounted config 改 listen 8080，Service/containerPort/probe 对齐；
+3. prod profile 才启用 frontend（kind 形态没暴露）—— `control-api-ingress` 未放行 control 平面内 frontend→api 反代 → 补 8080 通道；
+4. `control-default-deny` 挡掉 ingress-nginx→frontend 后端（根路径 504）→ 新增 `control-frontend-ingress`（frontend.enabled 时渲染）。
+
+传输说明：kind 无 LoadBalancer、WSL2 下宿主侧 NodePort 不通 —— 门用 `kubectl port-forward` 暴露 ingress-controller Service（30443:443）与 API（18080:8080），路由/TLS/证书逻辑与生产 LoadBalancer 路径一致，仅传输跳不同；L3 测试客户端 `trust_env=False` 规避宿主代理/证书环境变量对 pf 通道的干扰。
+
 ## 8.5 镜像发布管道（Phase 4.1 G1）
 
 三个生产镜像全部由本仓库构建（不依赖宿主编译）：

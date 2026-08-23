@@ -95,7 +95,11 @@ def test_attempt_job_runs_to_completion_in_kind() -> None:
     assert KIND_API_URL, "AGENT_PLATFORM_KIND_API_URL is required (port-forward)"
     core = _k8s_core()
 
-    with httpx.Client(base_url=KIND_API_URL, timeout=30.0) as client:
+    # trust_env=False: httpx otherwise honors host env (proxy/cert knobs) which
+    # can break the kubectl port-forward transport on some hosts (Phase 4.2
+    # prod-form gate catch — requests through the pf returned 502 until the
+    # client was pinned deterministic).
+    with httpx.Client(base_url=KIND_API_URL, timeout=30.0, trust_env=False) as client:
         run_id = _create_run(client)
         final = _wait_run_terminal(client, run_id)
         assert final["status"] == "SUCCEEDED", final
@@ -112,13 +116,24 @@ def test_attempt_job_runs_to_completion_in_kind() -> None:
         ), "no SUCCEEDED detail found in events"
 
     # Kubernetes object side: the sandbox Pod must have Succeeded and exited 0.
-    pods = core.list_namespaced_pod(namespace=NAMESPACE, label_selector=JOB_LABEL)
-    items = list(pods.items or [])
-    assert items, f"no sandbox Pods found (label {JOB_LABEL})"
-    pod = items[0]
-    assert pod.status.phase == "Succeeded", (
-        f"attempt Pod did not succeed: phase={pod.status.phase} "
-        f"reason={pod.status.reason}"
+    # The API-side terminal event can land a beat before the Pod object flips
+    # to Succeeded (Phase 4.2 prod-form gate caught this race) — poll bounded.
+    deadline = time.time() + 60.0
+    pod = None
+    while time.time() < deadline:
+        pods = core.list_namespaced_pod(
+            namespace=NAMESPACE, label_selector=JOB_LABEL
+        )
+        succeeded = [
+            p for p in (pods.items or []) if p.status.phase == "Succeeded"
+        ]
+        if succeeded:
+            pod = succeeded[0]
+            break
+        time.sleep(2)
+    assert pod is not None, (
+        f"no Succeeded attempt Pod found (label {JOB_LABEL}; "
+        f"phases={[p.status.phase for p in (pods.items or [])]})"
     )
     assert pod.metadata.uid, "attempt Pod has no UID"
     for container in pod.status.container_statuses or []:
@@ -132,7 +147,7 @@ def test_attempt_job_runs_to_completion_in_kind() -> None:
 def test_kind_api_requires_reference_token() -> None:
     """The deployed API must reject unauthenticated public requests."""
     assert KIND_API_URL, "AGENT_PLATFORM_KIND_API_URL is required (port-forward)"
-    with httpx.Client(base_url=KIND_API_URL, timeout=30.0) as client:
+    with httpx.Client(base_url=KIND_API_URL, timeout=30.0, trust_env=False) as client:
         # A missing Authorization header must surface as an authz error
         # (before any route-level 404/405); Run lookup is the most direct probe.
         response = client.get("/v1/runs/run-does-not-exist")

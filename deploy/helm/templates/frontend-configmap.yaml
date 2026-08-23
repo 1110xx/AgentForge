@@ -10,8 +10,11 @@ metadata:
     app.kubernetes.io/name: agent-platform-frontend
 data:
   default.conf: |
+    # Port 8080, NOT 80: the pod runs nginx as uid 101 inside a restricted
+    # namespace (no NET_BIND_SERVICE), so <1024 listeners are denied on the
+    # cluster kernel. The frontend Service maps 80 -> 8080 (targetPort).
     server {
-      listen 80;
+      listen 8080;
       server_name _;
       root {{ .Values.frontend.nginx.staticRoot }};
       index index.html;

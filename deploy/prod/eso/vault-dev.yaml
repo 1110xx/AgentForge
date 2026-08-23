@@ -1,0 +1,100 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Ephemeral Vault (dev mode) — Phase 4.2 (G2) 生产 Secret 实接演示形态.
+#
+# This is the *development-equivalent* SecretStore backend for the local /
+# kind-based production-form gate: a single Vault dev server holding the
+# dependency credential map (PG/NATS/S3/DeepSeek) that External Secrets
+# Operator syncs into the platform Secret.
+#
+# In a real production it is replaced by a managed Vault/KMS (or AWS/GCP
+# Secrets Manager providers); the contract does not change — the
+# ClusterSecretStore / ExternalSecret definitions below are provider-agnostic
+# and switch by editing `cluster-secret-store.yaml`.
+#
+# Dev mode specifics:
+#   - `-dev` boots an in-memory root token endpoint; we pin the root token via
+#     `-dev-root-token-id` so the wiring is deterministic.
+#   - KV v2 engine is auto-mounted at `secret/` (ESO vault provider defaults
+#     to the v2 API for that mount).
+#   - NOT for real secrets: no persistence, no TLS, plain HTTP in-cluster.
+#     The bootstrap script creates the token Secret first; manifest references
+#     it via envFrom (no token in the manifest).
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agent-platform-vault
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault
+  namespace: agent-platform-vault
+spec:
+  selector:
+    app.kubernetes.io/name: agent-platform-vault
+  ports:
+    - name: http
+      port: 8200
+      targetPort: 8200
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-platform-vault
+  namespace: agent-platform-vault
+  labels:
+    app.kubernetes.io/name: agent-platform-vault
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform-vault
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent-platform-vault
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 100
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: vault
+          image: hashicorp/vault:1.17.6
+          # k8s does not expand env in `args` — run through a shell so the
+          # pinned root token from the Secret lands in -dev-root-token-id.
+          command: ["/bin/sh", "-c"]
+          args:
+            - |-
+              exec vault server -dev \
+                -dev-root-token-id="${VAULT_DEV_ROOT_TOKEN}" \
+                -dev-listen-address=0.0.0.0:8200
+          envFrom:
+            - secretRef:
+                name: agent-platform-vault-token
+          ports:
+            - name: http
+              containerPort: 8200
+          readinessProbe:
+            httpGet:
+              path: /v1/sys/health
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

@@ -10,7 +10,12 @@ spec:
   selector:
     app.kubernetes.io/name: agent-platform-frontend
   ports:
+    # In-cluster the nginx master runs as uid 101 and the namespace enforces
+    # PodSecurity restricted (CAP_NET_BIND_SERVICE dropped) — binding the
+    # default <1024 port would CrashLoop. The mounted ConfigMap server block
+    # listens on 8080 (see frontend-configmap.yaml); the Service keeps the
+    # conventional 80 name-side while targeting that high port.
     - port: 80
-      targetPort: http
+      targetPort: 8080
       name: http
 {{- end }}

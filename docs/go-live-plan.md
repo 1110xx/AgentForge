@@ -55,7 +55,7 @@
 | 阶段 | 验收 |
 | --- | --- |
 | 4.1 | 三镜像可构建可推送（✅：`build-images.sh` 实跑，`localhost:5001` 推三镜像）；git 内含真 digest 的 helm 渲染全绿（✅：`deploy/prod/values.yaml` golden + check-k8s prod profile 断言）；生产一键部署可复现（✅：`helm upgrade --install -f deploy/prod/values.yaml` 单命令，helm README §8 记录） |
-| 4.2 | SecretStore 运行且凭据注入生效；域名 + TLS 生效；L3 门在生产形态重跑全绿 |
+| 4.2 | SecretStore 运行且凭据注入生效；域名 + TLS 生效；L3 门在生产形态重跑全绿（✅ 2026-08-23：ESO+Vault 实接、注入断言、TLS/入口断言、L3 生产形态 2/2 全绿；gVisor 可选留 4.5，KEDA 留 4.4） |
 | 4.3 | OTLP traces/metrics 可在观测后端正查（≥1 Grafana 面板）；≥3 条告警规则生效；日志集中可检索 |
 | 4.4 | HPA 压力验证通过（消息积压→扩容→回缩）；数小时长 Run 无快照膨胀异常；出具 D/E 立项结论 |
 | 4.5 | gVisor 验证结论或替代方案；OIDC 决策记录；备份恢复演练一次 PASS；发布/回滚演练一次 PASS |
@@ -80,6 +80,35 @@
   Ingress/ExternalSecret/HPA/KEDA/RuntimeClass）；pytest 66+8。顺手修：agent-ui-react `chat()`
   调用点类型债（`ChatCommand` 输出态 resource_refs 必填 → 暴露 `ChatCommandInput`=z.input），
   前端全 workspace build 恢复绿。
+
+### Phase 4.2 生产接线（G2/G3）✅ 已交付（2026-08-23）
+
+- **G2 生产 Secret 实接**：`scripts/bootstrap-prod-wiring.sh` 幂等接线 —— 真实 External
+  Secrets Operator v0.9.20 + ClusterSecretStore `enterprise-secret-store`（Vault
+  provider） + dev Vault（受管 Vault/KMS 的等价占位，契约不变）+ 九键凭据 map
+  （PG/NATS/S3/DeepSeek 模型 key）→ ExternalSecret（chart 契约）→ Secret
+  `agent-platform-dependencies` → pod envFrom。round-trip 断言：9 键与 Vault
+  值逐字节一致。实跑修复：① ExternalSecret `refreshInterval` 字符串而
+  ClusterSecretStore 要整数秒（ESO CRD 校验不对等，初版写反）② 预建
+  namespace/ExternalSecret 需打标准 Helm 所有权标签才能被 helm import
+  ③ seed 后注解触发事件级 reconcile + 轮询。
+- **G3 域名/TLS 生效**：cert-manager v1.15.3 + 演示两层 CA（`deploy/prod/tls/`）
+  + Ingress 模板新增 `cert-manager.io/cluster-issuer` annotation 注入（golden
+  默认 letsencrypt-prod 不变，演示门覆写 demo issuer）→ ingress-shim 签发 leaf
+  （SAN=`agent-platform.e2e.local`）。验证：root/api 200 via https、leaf SAN、
+  openssl 链可验（含 -verify_hostname）、SSE 反缓冲 off。
+- **L3 生产形态重跑**：`scripts/test-prod-form.sh` —— golden helm 部署（host/issuer/
+  沙箱运行时覆写，api 副本 2 因 kind 双 worker 上限，HA 斜度归 4.4）→ G2 注入断言
+  → G3 TLS/入口断言 → 真实 Run→Attempt→SUCCEEDED（`test_attempt_job.py` 2/2）。
+- **动门抓出 4 个静态门覆盖不到的缺口（已修）**：frontend 容器 PodSecurity restricted
+  姿态缺失（enforce 拒 Pod）；非 root nginx bind<1024 拒绝（listen 8080 对齐
+  Service/containerPort/probe）；`control-api-ingress` 未放行 control 平面内
+  frontend→api 反代；`control-default-deny` 挡掉 ingress→frontend（根路径 504，
+  新增 `control-frontend-ingress`）。另有：migrate hook 引用 chart 渲染 SA/
+  PriorityClass 导致首次安装 hook FailCreate（hook 先于 main manifests）→
+  改 default SA + 去 priority；kind 门用 kubectl apply 致 helm import 冲突 →
+  接线脚本打所有权标签/先 purge；L3 客户端 `trust_env=False` 规避宿主环境对
+  pf 通道干扰；pod 状态断言轮询消除 SUCCEEDED 事件早于 Pod 状态翻转的竞态。
 
 ## 5. 最短上线路径（建议顺序）
 

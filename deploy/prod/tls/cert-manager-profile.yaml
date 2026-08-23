@@ -1,0 +1,52 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# cert-manager profile — Phase 4.2 (G3) 域名/TLS 生效（演示/本地形态）.
+#
+# Two-tier trust chain that works fully in-cluster, so the TLS contract
+# (Ingress annotation → Certificate → Secret → termination) is exercised end
+# to end without public DNS / Let's Encrypt:
+#
+#   1. SelfSigned ClusterIssuer signs a demo root CA Certificate
+#      (secret agent-platform-demo-ca).
+#   2. CA ClusterIssuer (agent-platform-demo-issuer) issues leaf certificates
+#      from that CA for the ingress host when the Ingress carries
+#      `cert-manager.io/cluster-issuer: agent-platform-demo-issuer`.
+#
+# The Ingress template (deploy/helm/templates/ingress.yaml) emits the issuer
+# annotation whenever `ingress.tls.enabled` + `ingress.tls.clusterIssuer` are
+# set, so a real deployment swaps this file for:
+#      ClusterIssuer letsencrypt-prod (ACME HTTP-01/cloudflare-dns01)
+# and sets values ingress.tls.clusterIssuer=letsencrypt-prod — nothing else
+# changes. The demo issuer name is the golden default in deploy/prod/values.yaml
+# (ingress.tls.clusterIssuer: agent-platform-demo-issuer).
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: agent-platform-demo-ca
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: agent-platform-demo-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: agent-platform-demo-ca
+  secretName: agent-platform-demo-ca
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: agent-platform-demo-ca
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: agent-platform-demo-issuer
+spec:
+  ca:
+    secretName: agent-platform-demo-ca

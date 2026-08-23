@@ -14,7 +14,13 @@ spec:
       labels:
         app.kubernetes.io/name: agent-platform-migrate
     spec:
-      serviceAccountName: agent-platform-worker
+      # Hooks run BEFORE main manifests on a fresh install, so a chart-created
+      # ServiceAccount (agent-platform-worker, rendered with the Deployments)
+      # is not guaranteed to exist when this Job starts. The migrate hook only
+      # needs PostgreSQL egress — the namespace `default` SA (token mounting
+      # already disabled below) is always present. This also keeps the hook
+      # zero-permission by design.
+      serviceAccountName: default
       automountServiceAccountToken: false
       restartPolicy: Never
       enableServiceLinks: false
@@ -22,7 +28,10 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
-      priorityClassName: agent-platform-control-critical
+      # No priorityClassName: the class is a chart-rendered cluster-scoped
+      # resource, and pre-install hooks run before main manifests — referencing
+      # it would FailCreate the hook Job on a fresh install (same class of bug
+      # as the ServiceAccount above). A brief alembic hook needs no priority.
       containers:
         - name: migrate
           image: "{{ .Values.images.controlPlane.repository }}@{{ .Values.images.controlPlane.digest }}"
