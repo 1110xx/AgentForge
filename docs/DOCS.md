@@ -12,6 +12,7 @@
 | sdd-followup-mode.md | 追问链专属 SDD：FollowupPanel/useFollowupHistory/追问端点与公共完成器。
 | sdd-frontend-dual-mode.md | 前端双模式设计（live 真后端 / demo 内嵌 mock）与 SDK 分层。
 | sdd-frontend-launcher.md | Phase 3.6 前端入口 SDD：自由对话端点、AgentLauncher/浮窗、示例重建、CI+Helm 应用层（F-A..F-E）。 |
+| go-live-plan.md | 生产上线 Go-Live 差距与分阶段计划（Phase 4 立项）：G1-G8 差距清单、分阶段验收、最短上线路径。 |
 
 ## 目录内容
 
