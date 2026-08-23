@@ -10,10 +10,10 @@
  * Styling follows the EAP_THEME tokens (same variables as AgentPanel /
  * FollowupPanel); no CSS framework is introduced.
  *
- * Visual language borrowed from the pi-web-access search curator (MIT,
- * https://github.com/nicobailon/pi-web-access) and remapped onto the
- * EAP_THEME light palette: elevated card + top ambient glow, uppercase
- * kicker, pill status badges, dashed input row that sharpens on focus.
+ * Visual language follows the curator design system
+ * (frontend/design-system.md, remapped onto EAP_THEME): dark-first teal
+ * palette, elevated card + top ambient glow, uppercase kicker, pill
+ * status badges (999px), dashed input row that sharpens on focus.
  */
 import {
   useRef,
@@ -49,24 +49,24 @@ const pillStyle: CSSProperties = {
   border: `1px solid ${EAP_THEME.primary}`,
   borderRadius: "999px",
   background: EAP_THEME.primary,
-  color: "var(--eap-primary-foreground, #ffffff)",
+  color: "var(--eap-primary-foreground, #18181e)",
   cursor: "pointer",
   fontSize: "14px",
   fontWeight: 600,
-  boxShadow: "0 2px 10px rgba(37, 99, 235, 0.28)",
+  boxShadow: "0 2px 10px rgba(138, 190, 183, 0.35)",
 };
 
-// Panel: elevated card on the EAP surface tone with a top ambient glow
-// (mirror of the curator's radial-gradient hero light, in the EAP blue).
+// Panel: elevated card with the curator's radial ambient glow, on the
+// design-system accent-muted tint.
 const panelStyle: CSSProperties = {
   width: "320px",
   maxWidth: "calc(100vw - 32px)",
   background: EAP_THEME.surface,
   backgroundImage:
-    "radial-gradient(ellipse at 50% 0%, rgba(37, 99, 235, 0.07) 0%, transparent 60%)",
+    "radial-gradient(ellipse at 50% 0%, rgba(138, 190, 183, 0.14) 0%, transparent 60%)",
   border: `1px solid ${EAP_THEME.border}`,
   borderRadius: "10px",
-  boxShadow: "0 6px 24px rgba(15, 23, 42, 0.18)",
+  boxShadow: "0 6px 24px rgba(0, 0, 0, 0.4)",
   overflow: "hidden",
   display: "flex",
   flexDirection: "column",
@@ -165,9 +165,9 @@ function badgeFor(entry: ChatEntry): CSSProperties {
     return {
       padding: "2px 10px",
       borderRadius: "999px",
-      background: "rgba(220, 38, 38, 0.10)",
-      border: "1px solid rgba(220, 38, 38, 0.30)",
-      color: "#b91c1c",
+      background: "rgba(204, 102, 102, 0.14)",
+      border: "1px solid rgba(204, 102, 102, 0.30)",
+      color: "#cc6666",
       fontSize: "10px",
       fontWeight: 700,
       letterSpacing: "0.03em",
@@ -189,12 +189,12 @@ function badgeFor(entry: ChatEntry): CSSProperties {
       whiteSpace: "nowrap",
     };
   }
-  // created with a run id: primary-tinted pill.
+  // created with a run id: design-system accent-tinted pill.
   return {
     padding: "2px 10px",
     borderRadius: "999px",
-    background: "rgba(37, 99, 235, 0.10)",
-    border: "1px solid rgba(37, 99, 235, 0.30)",
+    background: "rgba(138, 190, 183, 0.12)",
+    border: "1px solid rgba(138, 190, 183, 0.30)",
     color: EAP_THEME.primary,
     fontSize: "10px",
     fontWeight: 700,
@@ -225,7 +225,7 @@ const inputStyle: CSSProperties = {
 
 const inputFocusStyle: CSSProperties = {
   border: `1px solid ${EAP_THEME.primary}`,
-  boxShadow: "0 0 0 3px rgba(37, 99, 235, 0.12)",
+  boxShadow: "0 0 0 3px rgba(138, 190, 183, 0.18)",
 };
 
 const sendStyle: CSSProperties = {
@@ -233,11 +233,11 @@ const sendStyle: CSSProperties = {
   border: "none",
   borderRadius: "8px",
   background: EAP_THEME.primary,
-  color: "var(--eap-primary-foreground, #ffffff)",
+  color: "var(--eap-primary-foreground, #18181e)",
   cursor: "pointer",
   fontSize: "14px",
   fontWeight: 600,
-  boxShadow: "0 2px 6px rgba(37, 99, 235, 0.25)",
+  boxShadow: "0 2px 6px rgba(138, 190, 183, 0.3)",
 };
 
 const emptyStyle: CSSProperties = {

@@ -1,12 +1,15 @@
 # Embedded Agent UI 设计约束
 
+> 设计 token 来源：`DESIGN-SYSTEM.md`（Pi Web Access curator 设计系统，dark-first 双主题）。
+> 组件 token 默认值已按该设计系统落地（EAP_THEME / followup-panel `--agent-*`）；宿主可用 `--eap-*` / `--agent-*` CSS 变量整体切换主题（含浅色变体）。
+
 ## Design DNA
 
-- Color mode：light。允许宿主通过 `--eap-css` variables 覆盖。
-- Primary：#2563eb；background：#ffffff / #f8fafc
-- Text：#0f172a；secondary：#475569；border：#cbd5e1
-- Font：继承宿主 font-family；base size 14px
-- Radius：8px；spacing unit：4px
+- Color mode：dark-first（`--bg #18181e` / `--bg-card #1e1e24` / `--bg-elevated #252530`）；宿主可整体切换浅色变体。
+- Primary（accent）：teal `#8abeb7`，其上前景深色 `#18181e`；默认值见 `DESIGN-SYSTEM.md` §1.1。
+- Text：#e0e0e0 / muted #909098 / dim #606068；border：#2a2a34（subtle #353540）
+- Font：继承宿主 font-family（宿主可引入 Outfit）；hero 显示体建议 Instrument Serif italic；不强制
+- Radius：10px（卡片）/ 6px（小控件）/ 999px（pill）；spacing unit：4px
 - 组件不得依赖 Triage、Ant Design 或宿主私有主题。
 
 ## 组件与状态

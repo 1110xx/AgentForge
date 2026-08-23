@@ -4,21 +4,38 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AgentForge Embedded Host Example</title>
+    <!-- Curator design system fonts (frontend/design-system.md) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Outfit:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <style>
       :root {
-        --eap-primary: #2563eb;
-        --eap-background: #ffffff;
-        --eap-surface: #f8fafc;
-        --eap-text: #0f172a;
-        --eap-secondary-text: #475569;
-        --eap-border: #cbd5e1;
-        --eap-radius: 8px;
+        --eap-primary: #8abeb7;
+        --eap-background: #1e1e24;
+        --eap-surface: #252530;
+        --eap-text: #e0e0e0;
+        --eap-secondary-text: #909098;
+        --eap-border: #2a2a34;
+        --eap-radius: 10px;
+        --eap-success: #b5bd68;
+        --eap-danger: #cc6666;
+        --eap-warning: #f0c674;
+        --eap-focus: #8abeb7;
+        --eap-primary-foreground: #18181e;
       }
       body {
         margin: 0;
-        background: #f1f5f9;
-        color: #0f172a;
-        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        background: #18181e;
+        background-image: radial-gradient(
+          ellipse at 50% 0%,
+          rgba(138, 190, 183, 0.15) 0%,
+          transparent 60%
+        );
+        color: #e0e0e0;
+        font-family: "Outfit", system-ui, -apple-system, "Segoe UI", sans-serif;
       }
     </style>
   </head>

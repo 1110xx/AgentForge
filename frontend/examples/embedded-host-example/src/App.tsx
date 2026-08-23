@@ -21,11 +21,12 @@ const pageStyle: CSSProperties = {
 };
 
 const cardStyle: CSSProperties = {
-  background: "#ffffff",
-  border: "1px solid #cbd5e1",
-  borderRadius: "8px",
+  background: "#1e1e24",
+  border: "1px solid #2a2a34",
+  borderRadius: "10px",
   padding: "16px",
   marginBottom: "16px",
+  boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
 };
 
 const fieldStyle: CSSProperties = {
@@ -38,30 +39,36 @@ const fieldStyle: CSSProperties = {
 const inputStyle: CSSProperties = {
   flex: 1,
   padding: "6px 8px",
-  borderRadius: "8px",
-  border: "1px solid #cbd5e1",
+  borderRadius: "6px",
+  border: "1px solid #353540",
+  background: "#252530",
+  color: "#e0e0e0",
   fontSize: "14px",
 };
 
 const buttonStyle: CSSProperties = {
   padding: "6px 14px",
-  borderRadius: "8px",
-  border: "1px solid #2563eb",
-  background: "#2563eb",
-  color: "#ffffff",
+  borderRadius: "999px",
+  border: "1px solid #8abeb7",
+  background: "#8abeb7",
+  color: "#18181e",
   fontSize: "14px",
+  fontWeight: 600,
   cursor: "pointer",
+  boxShadow: "0 2px 6px rgba(138,190,183,0.25)",
 };
 
 const secondaryButton: CSSProperties = {
   ...buttonStyle,
-  background: "#ffffff",
-  color: "#2563eb",
+  background: "#252530",
+  border: "1px solid #2a2a34",
+  color: "#8abeb7",
+  boxShadow: "none",
 };
 
 const statusLine: CSSProperties = {
   marginTop: "8px",
-  color: "#475569",
+  color: "#909098",
   fontSize: "12px",
   wordBreak: "break-all",
 };
@@ -69,13 +76,13 @@ const statusLine: CSSProperties = {
 const summaryStyle: CSSProperties = {
   cursor: "pointer",
   fontWeight: 600,
-  color: "#2563eb",
+  color: "#8abeb7",
   marginBottom: "12px",
 };
 
 /* ------------------------------------------------------------------ */
-/* Curator-style hero (layout language borrowed from the pi-web-access  */
-/* search curator, remapped onto the EAP light-blue palette)            */
+/* Curator design system hero (frontend/design-system.md): kicker +    */
+/* serif display title + meta row, all on the dark teal palette.       */
 /* ------------------------------------------------------------------ */
 
 const heroStyle: CSSProperties = {
@@ -85,19 +92,21 @@ const heroStyle: CSSProperties = {
 const heroKickerStyle: CSSProperties = {
   margin: "0 0 6px",
   fontSize: "11px",
-  fontWeight: 700,
+  fontWeight: 600,
   letterSpacing: "0.1em",
   textTransform: "uppercase",
-  color: "#2563eb",
+  color: "#8abeb7",
 };
 
 const heroTitleStyle: CSSProperties = {
   margin: "0 0 8px",
-  fontSize: "28px",
-  fontWeight: 700,
+  fontSize: "40px",
+  fontWeight: 400,
+  fontStyle: "italic",
+  fontFamily: '"Instrument Serif", Georgia, serif',
   letterSpacing: "-0.01em",
   lineHeight: 1.1,
-  color: "#0f172a",
+  color: "#e0e0e0",
   textWrap: "balance",
 };
 
@@ -106,7 +115,7 @@ const heroDescStyle: CSSProperties = {
   maxWidth: "480px",
   fontSize: "14px",
   lineHeight: 1.5,
-  color: "#475569",
+  color: "#909098",
 };
 
 const heroMetaStyle: CSSProperties = {
@@ -115,16 +124,16 @@ const heroMetaStyle: CSSProperties = {
   flexWrap: "wrap",
   gap: "8px",
   fontSize: "13px",
-  color: "#475569",
+  color: "#909098",
 };
 
 // Curator-style pill badge for the bound run / mode.
 const chipStyle: CSSProperties = {
   padding: "2px 10px",
   borderRadius: "999px",
-  background: "rgba(37, 99, 235, 0.10)",
-  border: "1px solid rgba(37, 99, 235, 0.30)",
-  color: "#2563eb",
+  background: "rgba(138, 190, 183, 0.12)",
+  border: "1px solid rgba(138, 190, 183, 0.30)",
+  color: "#8abeb7",
   fontSize: "11px",
   fontWeight: 700,
   letterSpacing: "0.03em",
@@ -276,7 +285,7 @@ export function App() {
           </form>
         </details>
         {error !== null ? (
-          <div style={{ ...statusLine, color: "#dc2626" }}>{error}</div>
+          <div style={{ ...statusLine, color: "#cc6666" }}>{error}</div>
         ) : null}
         {runId !== null ? (
           <div style={statusLine}>run_id: {runId}</div>
@@ -296,7 +305,7 @@ export function App() {
 
       <AgentPlatformProvider client={client} hostBridge={hostBridge}>
         {runId === null ? (
-          <div style={{ ...cardStyle, color: "#475569" }}>
+          <div style={{ ...cardStyle, color: "#909098" }}>
             <p
               style={{
                 ...heroKickerStyle,

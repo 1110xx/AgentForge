@@ -28,38 +28,41 @@ import {
 } from "./use-followup-history.js";
 
 /* ------------------------------------------------------------------ */
-/* v2 Design System CSS Variable Tokens (fallback defaults)            */
+/* Design System CSS Variable Tokens (fallback defaults)               */
 /* ------------------------------------------------------------------ */
+/* Dark-first tokens remapped from the Pi Web Access curator design    */
+/* system (frontend/design-system.md). Light mode is a host-side swap  */
+/* of the same --agent-* variables.                                    */
 
 const V2 = {
-  primary: "var(--agent-primary, #4f46e5)",
-  primaryHover: "var(--agent-primary-hover, #4338ca)",
-  primarySubtle: "var(--agent-primary-subtle, #eef2ff)",
-  primaryGlow: "var(--agent-primary-glow, rgba(79,70,229,0.12))",
-  bgBase: "var(--agent-bg-base, #ffffff)",
-  bgElevated: "var(--agent-bg-elevated, #fafaf9)",
-  bgSurface: "var(--agent-bg-surface, #f5f5f4)",
-  textPrimary: "var(--agent-text-primary, #1c1917)",
-  textSecondary: "var(--agent-text-secondary, #57534e)",
-  textTertiary: "var(--agent-text-tertiary, #a8a29e)",
-  textQuaternary: "var(--agent-text-quaternary, #d6d3d1)",
-  textInverse: "var(--agent-text-inverse, #ffffff)",
-  borderDefault: "var(--agent-border-default, rgba(120,113,108,0.15))",
-  borderSubtle: "var(--agent-border-subtle, rgba(120,113,108,0.08))",
-  borderFocus: "var(--agent-border-focus, #4f46e5)",
-  borderHover: "var(--agent-border-hover, rgba(79,70,229,0.3))",
-  followupBg: "var(--agent-followup-bg, #fafaf9)",
-  followupBorder: "var(--agent-followup-border, rgba(120,113,108,0.1))",
-  userBubbleBg: "var(--agent-followup-user-bubble, #eef2ff)",
-  userBubbleBorder: "var(--agent-followup-user-border, rgba(79,70,229,0.12))",
-  agentBubbleBg: "var(--agent-followup-agent-bubble, #f5f5f4)",
+  primary: "var(--agent-primary, #8abeb7)",
+  primaryHover: "var(--agent-primary-hover, #9dcec7)",
+  primarySubtle: "var(--agent-primary-subtle, rgba(138,190,183,0.15))",
+  primaryGlow: "var(--agent-primary-glow, rgba(138,190,183,0.12))",
+  bgBase: "var(--agent-bg-base, #18181e)",
+  bgElevated: "var(--agent-bg-elevated, #252530)",
+  bgSurface: "var(--agent-bg-surface, #1e1e24)",
+  textPrimary: "var(--agent-text-primary, #e0e0e0)",
+  textSecondary: "var(--agent-text-secondary, #909098)",
+  textTertiary: "var(--agent-text-tertiary, #606068)",
+  textQuaternary: "var(--agent-text-quaternary, #3f3f48)",
+  textInverse: "var(--agent-text-inverse, #18181e)",
+  borderDefault: "var(--agent-border-default, #2a2a34)",
+  borderSubtle: "var(--agent-border-subtle, #353540)",
+  borderFocus: "var(--agent-border-focus, #8abeb7)",
+  borderHover: "var(--agent-border-hover, rgba(138,190,183,0.3))",
+  followupBg: "var(--agent-followup-bg, #18181e)",
+  followupBorder: "var(--agent-followup-border, #2a2a34)",
+  userBubbleBg: "var(--agent-followup-user-bubble, rgba(138,190,183,0.15))",
+  userBubbleBorder:
+    "var(--agent-followup-user-border, rgba(138,190,183,0.3))",
+  agentBubbleBg: "var(--agent-followup-agent-bubble, #252530)",
   agentBubbleBorder:
-    "var(--agent-followup-agent-border, rgba(120,113,108,0.1))",
-  shadowXs: "var(--agent-shadow-xs, 0 1px 2px rgba(28,25,23,0.04))",
-  shadowSm: "var(--agent-shadow-sm, 0 1px 3px rgba(28,25,23,0.06))",
-  shadowFocus: "var(--agent-shadow-focus, 0 0 0 3px rgba(79,70,229,0.12))",
-  shadowInset:
-    "var(--agent-shadow-inset, inset 0 1px 2px rgba(28,25,23,0.04))",
+    "var(--agent-followup-agent-border, #353540)",
+  shadowXs: "var(--agent-shadow-xs, 0 1px 2px rgba(0,0,0,0.2))",
+  shadowSm: "var(--agent-shadow-sm, 0 1px 3px rgba(0,0,0,0.25))",
+  shadowFocus: "var(--agent-shadow-focus, 0 0 0 3px rgba(138,190,183,0.18))",
+  shadowInset: "var(--agent-shadow-inset, inset 0 1px 2px rgba(0,0,0,0.25))",
   radiusSm: "var(--agent-radius-sm, 6px)",
   radiusMd: "var(--agent-radius-md, 10px)",
   radiusLg: "var(--agent-radius-lg, 14px)",

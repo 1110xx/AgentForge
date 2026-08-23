@@ -4,8 +4,10 @@
  * DESIGN.md constraints:
  *   - no dynamic import of arbitrary component names (fixed allowlist);
  *   - no dangerouslySetInnerHTML (React escapes all server-provided text);
- *   - light theme, radius 8px, primary #2563eb, host-overridable via
- *     `--eap-*` CSS variables;
+ *   - dark-first theme remapped from the Pi Web Access curator design
+ *     system (frontend/design-system.md): teal accent #8abeb7, card
+ *     #1e1e24 on #18181e, radius 10px — host-overridable via `--eap-*`
+ *     CSS variables (light mode is a host-side variable swap);
  *   - recursion-ready: renderSurfaceDocument accepts a renderChild callback so
  *     a future server-side container component can compose nested documents
  *     without relaxing the allowlist.
@@ -34,21 +36,32 @@ export type CatalogComponent = (typeof CATALOG_COMPONENTS)[number];
 export const SURFACE_DOCUMENT_KIND = "a2ui-surface/v0.9.1" as const;
 
 /* ------------------------------------------------------------------ */
-/* Theme tokens (frontend/DESIGN.md)                                   */
+/* Theme tokens (frontend/design-system.md — curator design system)    */
 /* ------------------------------------------------------------------ */
 
 export const EAP_THEME = {
-  primary: "var(--eap-primary, #2563eb)",
-  background: "var(--eap-background, #ffffff)",
-  surface: "var(--eap-surface, #f8fafc)",
-  text: "var(--eap-text, #0f172a)",
-  secondaryText: "var(--eap-secondary-text, #475569)",
-  border: "var(--eap-border, #cbd5e1)",
-  radius: "var(--eap-radius, 8px)",
-  success: "var(--eap-success, #16a34a)",
-  danger: "var(--eap-danger, #dc2626)",
-  warning: "var(--eap-warning, #d97706)",
-  focus: "var(--eap-focus, #2563eb)",
+  /** --accent teal; foreground on accent is dark (#18181e). */
+  primary: "var(--eap-primary, #8abeb7)",
+  /** --bg-card (elevated surfaces sit on --bg #18181e). */
+  background: "var(--eap-background, #1e1e24)",
+  /** --bg-elevated: inputs, kbd, hover fills. */
+  surface: "var(--eap-surface, #252530)",
+  /** --fg */
+  text: "var(--eap-text, #e0e0e0)",
+  /** --fg-muted */
+  secondaryText: "var(--eap-secondary-text, #909098)",
+  /** --border */
+  border: "var(--eap-border, #2a2a34)",
+  /** --radius */
+  radius: "var(--eap-radius, 10px)",
+  /** --success */
+  success: "var(--eap-success, #b5bd68)",
+  /** --timer-urgent-fg */
+  danger: "var(--eap-danger, #cc6666)",
+  /** --warning */
+  warning: "var(--eap-warning, #f0c674)",
+  /** --accent (focus rings) */
+  focus: "var(--eap-focus, #8abeb7)",
 } as const;
 
 /* ------------------------------------------------------------------ */
@@ -147,7 +160,7 @@ const primaryButton: React.CSSProperties = {
   ...buttonBase,
   background: EAP_THEME.primary,
   borderColor: EAP_THEME.primary,
-  color: "#ffffff",
+  color: "var(--eap-primary-foreground, #18181e)",
 };
 
 const dangerButton: React.CSSProperties = {
