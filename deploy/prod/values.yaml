@@ -1,0 +1,78 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Production golden values — Phase 4.1 (G1 镜像发布管道).
+#
+# This file is the *deployable* production overlay: the image set is pinned by
+# content-addressed digests, the three workloads (api / orchestrator /
+# frontend) all run, and the ingress exposes the SPA at the root with API
+# traffic on the longest /api/agent-platform prefix.
+#
+# The `images:` block is rewritten by the publish pipeline after every build:
+#     scripts/build-images.sh --push --update-prod-values
+# (registry from AGENT_PLATFORM_REGISTRY, real sha256 digests from the pushed
+# images). Do not hand-edit the digest lines — a placeholder digest here is a
+# deliberate fail-closed state: `helm template` renders, but the static gate
+# (scripts/check-k8s.sh) refuses the profile until the pipeline has run.
+#
+# One-command production deployment (after a publish):
+#     helm upgrade --install agent-platform deploy/helm --namespace agent-platform-control \
+#       --create-namespace -f deploy/prod/values.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+images:
+  controlPlane:
+    repository: localhost:5001/enterprise-agent-platform/control-plane
+    digest: "sha256:ada98b25728d533e5ff7fdff10d80dc38cbd7d673ccf04b777d7f37e235cf497"
+  runtime:
+    repository: localhost:5001/enterprise-agent-platform/runtime
+    digest: "sha256:a6ce6f88994c8897fe48b352c2a66a88ef2b5469ccd9e832e76e0ca65bb9e8f1"
+  frontend:
+    repository: localhost:5001/enterprise-agent-platform/frontend
+    digest: "sha256:b3dd088245cd633a0faf1f4c55d2feaafac3fc45c52f4db81154a2d0f3ce0729"
+
+# The whole platform ships together: control plane + orchestrator workers +
+# the nginx-hosted SPA (AgentLauncher). Frontend is part of the production
+# image set, unlike the API-only default.
+frontend:
+  enabled: true
+  replicas: 2
+
+controlPlane:
+  replicas: 3
+  workersReplicas: 2
+
+# Expose the SPA at the root of the host and the API under the longest
+# /api/agent-platform prefix. Replace the host with the real DNS name (G3);
+# TLS terminates via cert-manager clusterIssuer or your own secret.
+ingress:
+  enabled: true
+  className: nginx
+  host: agent-platform.example.invalid
+  annotations: {}
+  tls:
+    enabled: true
+    secretName: agent-platform-api-tls
+    clusterIssuer: letsencrypt-prod
+
+# Scale-out knobs (HPA/KEDA on NATS backlog) and the hardened sandbox
+# RuntimeClass — chart defaults already carry these; they are listed here so
+# the file reads as the full production contract.
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 20
+  apiCpuAverageUtilization: 70
+
+sandbox:
+  namespace: agent-platform-sandbox
+  serviceAccountName: agent-platform-sandbox
+  runtimeClassName: agent-platform-gvisor
+  maxActiveAttempts: 100
+
+# Durable state lives outside the cluster (external PostgreSQL/NATS/S3) and
+# is wired through External Secrets — the contract is enabled by default and
+# must resolve to your SecretStore (G2).
+secrets:
+  externalSecretContract: true
+  externalSecretName: agent-platform-dependencies
+  storeRefName: enterprise-secret-store
+  storeRefKind: ClusterSecretStore
+  remoteKey: .enterprise-agent-platform/production

@@ -54,11 +54,32 @@
 
 | 阶段 | 验收 |
 | --- | --- |
-| 4.1 | 三镜像可构建可推送；git 内含真 digest 的 helm 渲染（沿用 check-k8s profile 断言）全绿；生产一键部署可复现 |
+| 4.1 | 三镜像可构建可推送（✅：`build-images.sh` 实跑，`localhost:5001` 推三镜像）；git 内含真 digest 的 helm 渲染全绿（✅：`deploy/prod/values.yaml` golden + check-k8s prod profile 断言）；生产一键部署可复现（✅：`helm upgrade --install -f deploy/prod/values.yaml` 单命令，helm README §8 记录） |
 | 4.2 | SecretStore 运行且凭据注入生效；域名 + TLS 生效；L3 门在生产形态重跑全绿 |
 | 4.3 | OTLP traces/metrics 可在观测后端正查（≥1 Grafana 面板）；≥3 条告警规则生效；日志集中可检索 |
 | 4.4 | HPA 压力验证通过（消息积压→扩容→回缩）；数小时长 Run 无快照膨胀异常；出具 D/E 立项结论 |
 | 4.5 | gVisor 验证结论或替代方案；OIDC 决策记录；备份恢复演练一次 PASS；发布/回滚演练一次 PASS |
+
+## 4.5 阶段进度
+
+### Phase 4.1 发布管道（G1）✅ 已交付（2026-08-23）
+
+- **三镜像全仓库构建**：`deploy/images/control-plane.Dockerfile` / `runtime.Dockerfile` / 新增
+  `frontend.Dockerfile`（node:22 构建 agent-ui 五 workspace → nginx:1.27 非 root uid101 托管 SPA，
+  懒解析反代 `/api/agent-platform`，SSE 不缓冲；镜像自带 default.conf 可 standalone 冒烟）。
+- **发布管道**：`scripts/build-images.sh`（build / --push / --update-prod-values；registry 与镜像源
+  env 化；输出校验合同 `deploy/prod/image-refs.json`）；`scripts/update_image_refs.py`（仅改 golden
+  values `images:` 块 6 行，保留注释与换行）。
+- **git 内真 digest**：golden `deploy/prod/values.yaml`（frontend/ingress/autoscaling/secrets 生产
+  合约全开）由管道每次发布写回真实 sha256；静态门 `scripts/check-k8s.sh` 新增 prod profile 断言——
+  三个 Deployment 必须 digest 钉死真 sha256 且非示例 registry，占位 fail-closed（exit 78 + 指引）。
+- **CI**：`image-gate` job——PR 只构建自测；main 且 `AGENT_PLATFORM_REGISTRY` 已配→推送+写回
+  golden+自动 commit（digest 内容寻址，无空提交/无乒乓）。
+- **实跑证据（本机）**：三镜像 build+push `localhost:5001`，golden 写回；前端镜像冒烟
+  (uid 101，SPA index/asset 200/200)；`check-k8s.sh` 四 profile 全绿（prod 37 manifests 含
+  Ingress/ExternalSecret/HPA/KEDA/RuntimeClass）；pytest 66+8。顺手修：agent-ui-react `chat()`
+  调用点类型债（`ChatCommand` 输出态 resource_refs 必填 → 暴露 `ChatCommandInput`=z.input），
+  前端全 workspace build 恢复绿。
 
 ## 5. 最短上线路径（建议顺序）
 

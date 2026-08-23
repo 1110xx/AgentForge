@@ -33,8 +33,10 @@ kind 开发渲染 **29 个**；开启 Ingress+PVC 的扩展渲染 **31 个**。
 | `images.frontend.repository` | `registry.example.invalid/.../frontend` | Phase 3.6 前端镜像（nginx + Vite 构建产物），仅 `frontend.enabled=true` 时使用 |
 | `images.frontend.digest` | `sha256:0000…0`（占位） | 同上 |
 
-> 生产镜像仓库与 digest 由 CI/CD 构建并注入（见 `scripts/test-kind.sh` 的注入流程）。
-> 占位 digest 部署会 pull 失败 —— 这是有意的 fail-closed。
+> 生产镜像仓库与 digest 由 CI/CD 构建并注入（见 §8.5 镜像发布管道）。占位 digest
+> 部署会 pull 失败 —— 这是有意的 fail-closed。仓库级 golden 值在
+> `deploy/prod/values.yaml`（每次发布由 `scripts/build-images.sh --update-prod-values`
+> 重写真 digest，静态门断言已钉真，占位会直接 fail）。
 
 ### 2.2 `controlPlane` — 控制面工作负载
 
@@ -261,6 +263,42 @@ helm uninstall enterprise-agent-platform --namespace agent-platform-control
 注意 migrate hook 是 `before-hook-creation,hook-succeeded` 删除策略 —— 升级时旧 Job
 自动重建，**不要**在集群里手工创建同名 Job。
 
+**生产一键部署（Phase 4.1 G1，镜像已发布后）**：
+
+```bash
+# deploy/prod/values.yaml 是本仓库的 golden 生产值：镜像按真 sha256 digest 钉死，
+# frontend/ingress/autoscaling/secrets 合约全开。改名 host 域名后直接安装：
+helm upgrade --install agent-platform deploy/helm --namespace agent-platform-control \
+  --create-namespace -f deploy/prod/values.yaml
+```
+
+## 8.5 镜像发布管道（Phase 4.1 G1）
+
+三个生产镜像全部由本仓库构建（不依赖宿主编译）：
+
+| 镜像 | Dockerfile | 内容 |
+|---|---|---|
+| control-plane | `deploy/images/control-plane.Dockerfile` | API + orchestrator + migrate（uv 同步，非 root 65532） |
+| runtime | `deploy/images/runtime.Dockerfile` | Attempt 沙箱 Runner（pi-agent-core 运行时） |
+| frontend | `deploy/images/frontend.Dockerfile` | nginx 非 root SPA（agent-ui 五 workspace 构建 + 反代 /api/agent-platform，SSE 不缓冲） |
+
+```bash
+# 构建（不推送）
+scripts/build-images.sh
+# 构建 + 推送到 AGENT_PLATFORM_REGISTRY（默认 localhost:5001；带用户名/密码自动 docker login）
+scripts/build-images.sh --push
+# 构建 + 推送 + 把真 digest 写回 deploy/prod/values.yaml（golden 文件，可提交）
+scripts/build-images.sh --push --update-prod-values
+```
+
+环境变量：`AGENT_PLATFORM_REGISTRY` / `AGENT_PLATFORM_REGISTRY_USERNAME` /
+`_PASSWORD`（docker login）/ `AGENT_PLATFORM_IMAGE_TAG` / `UV_INDEX_URL`、
+`NPM_REGISTRY_URL`（镜像源覆盖）。产物 `deploy/prod/image-refs.json`（GitOps 工具可读）。
+
+CI（`.github/workflows/ci.yml` `image-gate`）：PR 只构建自测；main 且配置了
+`vars.AGENT_PLATFORM_REGISTRY` 时构建+推送+更新 golden 值并自动提交
+（digest 内容寻址：内容不变 digest 不变 → 不产生空提交，不会乒乓）。
+
 ## 9. 无集群静态校验（helm template / lint）
 
 本 Chart 的静态门**不需要真实集群**：
@@ -276,7 +314,7 @@ scripts/check-k8s.sh
 | 1 | `helm lint deploy/helm` | 结构 + **values 对 `values.schema.json` 校验**（多余键/缺必填/格式 pattern 会 fail） |
 | 2 | `helm lint deploy/helm --values deploy/kind/values.yaml` | kind 覆盖 profile 同样过 schema |
 | 3 | `helm template … --values deploy/kind/values.yaml …` | kind 渲染（29 manifest） |
-| 4 | `helm template …` | 生产渲染（33 manifest） |
+| 4 | `helm template … --values deploy/prod/values.yaml` | 生产渲染（默认值 + golden 覆盖 = 37 manifest；**断言三 Deployment 均为真 sha256 digest 钉死**，占位/示例 registry 会 fail） |
 | 5 | `helm template … --set ingress.enabled=true … --set persistence.localScratch.enabled=true` | 扩展渲染（31 manifest，覆盖 Ingress/PVC 分支） |
 | 6 | Python `yaml.safe_load_all` | 全部渲染 manifest 可解析、kind 统计 |
 

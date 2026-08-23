@@ -92,3 +92,46 @@ jobs:
 
       - name: Helm static gate
         run: bash scripts/check-k8s.sh
+
+  image-gate:
+    # Phase 4.1 (G1): the image publish pipeline. Builds all three production
+    # images (control-plane / runtime / frontend) on every run; on main pushes
+    # with a registry configured it additionally pushes them and bakes the
+    # real content-addressed digests into the golden deploy/prod/values.yaml,
+    # committing the update (idempotent: identical content -> identical digest
+    # -> no commit -> no re-publish loop). Requisite repo variables/secrets:
+    #   vars.AGENT_PLATFORM_REGISTRY             registry host[:port]
+    #   secrets.AGENT_PLATFORM_REGISTRY_USERNAME (+ _PASSWORD)
+    # Optional mirrors: vars.AGENT_PLATFORM_UV_INDEX_URL / _NPM_REGISTRY_URL.
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build all three images (build-only gate)
+        run: bash scripts/build-images.sh
+
+      - name: Publish images + bake golden prod digests (main, registry configured)
+        if: github.ref == 'refs/heads/main' && vars.AGENT_PLATFORM_REGISTRY != ''
+        env:
+          AGENT_PLATFORM_REGISTRY: ${{ vars.AGENT_PLATFORM_REGISTRY }}
+          AGENT_PLATFORM_REGISTRY_USERNAME: ${{ secrets.AGENT_PLATFORM_REGISTRY_USERNAME }}
+          AGENT_PLATFORM_REGISTRY_PASSWORD: ${{ secrets.AGENT_PLATFORM_REGISTRY_PASSWORD }}
+          UV_INDEX_URL: ${{ vars.AGENT_PLATFORM_UV_INDEX_URL }}
+          NPM_REGISTRY_URL: ${{ vars.AGENT_PLATFORM_NPM_REGISTRY_URL }}
+        run: bash scripts/build-images.sh --push --update-prod-values
+
+      - name: Commit golden prod values (GitOps; skips when digests unchanged)
+        if: github.ref == 'refs/heads/main' && vars.AGENT_PLATFORM_REGISTRY != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "agent-platform-image-bot"
+          git config user.email "agent-platform-image-bot@users.noreply.github.com"
+          if ! git diff --quiet deploy/prod/values.yaml deploy/prod/image-refs.json; then
+            git add deploy/prod/values.yaml deploy/prod/image-refs.json
+            git commit -m "chore(images): publish control-plane/runtime/frontend digests"
+            git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
+          else
+            echo "image refs unchanged; nothing to commit"
+          fi

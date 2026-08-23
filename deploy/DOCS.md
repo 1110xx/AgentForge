@@ -9,7 +9,8 @@
 | --- | --- | --- |
 | config/ | 目录 | NATS 与 MinIO 生命周期配置 |
 | helm/ | 目录 | 生产 ControlPlane、orchestrator、namespace、安全和弹性清单（Phase 3.6：可选 `frontend` 工作负载 + Ingress 根路径/SSE 反缓冲） |
-| images/ | 目录 | Frozen、non-root 的 control-plane/runtime 镜像 |
+| images/ | 目录 | Frozen、non-root 的 control-plane/runtime/frontend 镜像（Phase 4.1：三镜像；frontend 含非 root nginx SPA + 懒解析反代） |
+| prod/ | 目录 | golden 生产 values（真 sha256 digest）× 镜像 refs JSON（发布管道写回） |
 | kind/ | 目录 | Disposable L3 集群、依赖和覆盖 values |
 | observability/ | 目录 | OTel processor/pipeline 与 Prometheus correctness/SLO 规则 |
 | runbooks/ | 目录 | Effect、Lease、数据库、NATS、对象、凭据和 DR 故障处理 |
@@ -18,6 +19,7 @@
 
 ## 验证状态
 - L2（Docker Compose 真实 PostgreSQL/NATS/MinIO 栈）：通过（scripts/test-compose.sh，5 tests）。
-- L3 静态门：通过（scripts/check-k8s.sh，四 profile：default 33 / kind 29 / extended(ingress+pvc) 31 / frontend 33 manifests，含第 4 profile 的 frontend Deployment+ConfigMap+Ingress SSE annotation 断言）。
+- L3 静态门：通过（scripts/check-k8s.sh，四 profile：kind 29 / 生产默认+golden 37 / extended(ingress+pvc) 31 / frontend 33 manifests；prod profile 断言 api/orchestrator/frontend 三 Deployment 均为真 sha256 digest 钉死，占位/示例 registry fail-closed）。
+- 镜像发布管道：通过（scripts/build-images.sh：三镜像构建→推 localhost:5001→golden `deploy/prod/values.yaml` 写回真 digest→前端镜像 standalone 冒烟 uid101 + SPA 200/200）。
 - 前端联调：scripts/verify-frontend-live.sh 直连 + vite dev proxy 双通道 /v1/chat 201 全过（本机实测 4/4）。
 - L3 动态门：backend/tests/kind/test_attempt_job.py（需要 Kind 集群，由 scripts/test-kind.sh 编排；本机未安装 kind/helm 时跳过）。

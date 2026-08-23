@@ -11,7 +11,9 @@
 | wheel-smoke.py | 文件 | 在 clean venv 中只用 public surface 验证 wheel |
 | test-compose.sh | 文件 | 执行 Disposable PostgreSQL/NATS/MinIO L2 |
 | bootstrap-kind-dependencies.sh | 文件 | 在 Kind 中准备 L3 依赖与凭据 |
-| check-k8s.sh | 文件 | K8s 静态门：helm lint + kind/生产 values 渲染 + YAML 解析 |
+| check-k8s.sh | 文件 | K8s 静态门：helm lint（默认/kind/golden 三 profile）+ kind/生产/扩展/frontend 四路渲染 + YAML 解析 + 生产黄金 digest 断言 |
+| build-images.sh | 文件 | Phase 4.1 镜像发布管道：构建 control-plane/runtime/frontend 三镜像，可选推送与写回 `deploy/prod/values.yaml` 真 digest |
+| update_image_refs.py | 文件 | 仅替换 golden values `images:` 块的 repository/digest 行（保留注释与换行） |
 | test-kind.sh | 文件 | 执行 Disposable Kind Sandbox Attempt L3 |
 
 ## 验证状态
@@ -20,5 +22,6 @@
 | L1 wheel | wheel-smoke.py | 通过 |
 | L1 contracts | check-generated.sh | 通过 |
 | L2 compose | test-compose.sh | 通过（5 tests） |
-| L3 静态 | check-k8s.sh | 通过 |
+| L3 静态 | check-k8s.sh | 通过（四 profile，prod profile 真 digest 钉死断言） |
+| 镜像发布 | build-images.sh | 通过（三镜像本地构建/推送 + golden digest 写回） |
 | L3 动态 | test-kind.sh | 待运行（需要 kind/helm/kubectl） |

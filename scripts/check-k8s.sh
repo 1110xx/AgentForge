@@ -67,6 +67,27 @@ trap cleanup EXIT
 echo "helm lint passed (default values, schema validated)"
 "$helm_command" lint "$root_dir/deploy/helm" --values "$root_dir/deploy/kind/values.yaml" >/dev/null
 echo "helm lint passed (kind values, schema validated)"
+"$helm_command" lint "$root_dir/deploy/helm" --values "$root_dir/deploy/prod/values.yaml" >/dev/null
+echo "helm lint passed (production golden values, schema validated)"
+
+# Phase 4.1 fail-closed guard: the production golden values must carry REAL
+# content-addressed digests (written by scripts/build-images.sh). A
+# placeholder sha256:000... digest renders fine but is a deliberate fail-closed
+# state until the publish pipeline has run once.
+if grep -Eq 'digest: "sha256:0{64}"' "$root_dir/deploy/prod/values.yaml"; then
+  cat >&2 <<'EOF'
+check-k8s: production golden values still carry placeholder digests
+  (deploy/prod/values.yaml). Run the publish pipeline first:
+
+    scripts/build-images.sh --push --update-prod-values
+
+  then re-run this gate. (CI image-gate does exactly this on main pushes;
+  PRs only build, so a fresh checkout of default main is always green.)
+EOF
+  exit 78
+fi
+
+echo "prod golden digests present: $(grep -c 'digest: "sha256:' "$root_dir/deploy/prod/values.yaml") image entries"
 
 render_kind() {
   "$helm_command" template agent-platform "$root_dir/deploy/helm" \
@@ -80,6 +101,7 @@ render_kind() {
 
 render_prod() {
   "$helm_command" template agent-platform "$root_dir/deploy/helm" \
+    --values "$root_dir/deploy/prod/values.yaml" \
     >"$temporary_root/prod.yaml"
 }
 
@@ -123,7 +145,7 @@ render_frontend() {
 render_kind
 echo "helm template (kind values) rendered"
 render_prod
-echo "helm template (production values) rendered"
+echo "helm template (production golden values) rendered"
 render_extended
 echo "helm template (extended: ingress+pvc) rendered"
 render_frontend
@@ -160,6 +182,28 @@ assert any(p["path"] == "/" for p in paths), "frontend root path missing in ingr
 conf = next(doc for doc in frontend if doc["kind"] == "ConfigMap")
 assert "proxy_buffering off;" in conf["data"]["default.conf"]
 print("frontend profile: api+frontend deployments, ConfigMap proxy, ingress SSE annotation OK")
+
+# Phase 4.1 assertion for the production profile: the rendered image refs must
+# be digest-pinned to real, non-placeholder sha256 digests in the git golden
+# values (deploy/prod/values.yaml), proving the tree carries a deployable set.
+prod = [
+    doc
+    for doc in yaml.safe_load_all(open(sys.argv[2], encoding="utf-8"))
+    if doc
+]
+placeholder = "sha256:" + "0" * 64
+for want_deployment in ("agent-platform-api", "agent-platform-orchestrator", "agent-platform-frontend"):
+    deployment = next(
+        (doc for doc in prod if doc.get("kind") == "Deployment" and doc.get("metadata", {}).get("name") == want_deployment),
+        None,
+    )
+    assert deployment is not None, f"prod profile missing deployment {want_deployment}"
+    image_ref = deployment["spec"]["template"]["spec"]["containers"][0]["image"]
+    repo, digest = image_ref.rsplit("@", 1)
+    assert digest.startswith("sha256:") and len(digest) == 71, f"{want_deployment}: not digest-pinned: {image_ref}"
+    assert digest != placeholder, f"{want_deployment}: placeholder digest — run scripts/build-images.sh --push --update-prod-values first"
+    assert "registry.example.invalid" not in repo, f"{want_deployment}: example registry still referenced: {repo}"
+print("prod profile: api/orchestrator/frontend digest-pinned to real sha256 refs (golden values)")
 PY
 
 echo "k8s static gate passed"
