@@ -67,3 +67,11 @@
 3. **G5 可观测**
 4. **G8 容量/长 Run**（触发 D/E 评估）
 5. **G4/G6/G7 安全加固 + 备份文档**
+
+## 6. 前端交付路线决策（2026-08-23 用户确认）
+
+- **路线：前端 SDK/组件先行，产品页面最后做。**
+- 当前交付物即**可嵌入 SDK + 组件库**（`agent-ui-protocol` 契约 / `agent-ui-client` 客户端 / `agent-ui-react` 组件），`examples/embedded-host-example` 仅是演示与联调宿主（demo 页面，非产品 UI）。
+- **生产消费方式**：宿主业务系统自建页面嵌入组件（F-B 契约，经 HostBridgeCapabilities 适配）；独立托管形态（Helm frontend = nginx SPA 托管）也已就绪，供无宿主场景使用。
+- **产品页面**（登录/工作台/运行列表/管理/结合业务）属独立控制台形态，**后置**：结合宿主业务与 `agent-ui-*` SDK 再做（见主 SDD Phase 4 远期清单）。
+- 阶段边界：Phase 3.6 已交付「嵌入组件 + 演示宿主」；Phase 4 上线 = 三镜像（runtime/control/frontend）整体发布，不新增产品 UI 资产。
