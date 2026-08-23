@@ -10,7 +10,7 @@
  */
 import type {
   EnterpriseEventEnvelope,
-  ChatCommand as ChatCommandType,
+  ChatCommandInput as ChatCommandInputType,
   CreateRunCommand as CreateRunCommandType,
   RunViewSnapshot as RunViewSnapshotType,
   SurfaceRevision as SurfaceRevisionType,
@@ -89,7 +89,7 @@ export interface CreateRunOptions extends IdempotentRequestOptions {
 }
 
 export interface ChatOptions extends IdempotentRequestOptions {
-  command: ChatCommandType;
+  command: ChatCommandInputType;
 }
 
 export interface RunEventsOptions extends RequestOptions {
@@ -258,11 +258,11 @@ export class AgentPlatformClient {
    * through the existing followup chain (submitFollowup).
    */
   async chat(
-    command: ChatCommandType,
+    command: ChatCommandInputType,
     options: IdempotentRequestOptions = {},
   ): Promise<RunViewSnapshotType> {
     const key = options.idempotencyKey ?? createIdempotencyKey("chat");
-    let parsed: ChatCommandType;
+    let parsed: ChatCommand;
     try {
       parsed = ChatCommand.parse(command); // client-side contract check
     } catch {

@@ -819,6 +819,14 @@ export const ChatCommand = z
   );
 export type ChatCommand = z.infer<typeof ChatCommand>;
 
+/**
+ * Call-site input type for ``ChatCommand``: ``resource_refs`` may be omitted
+ * and is defaulted by the schema at parse time (mirrors the backend default).
+ * ``z.infer`` exposes the *output* type, where the default has already been
+ * applied, so this input type is what clients should accept in signatures.
+ */
+export type ChatCommandInput = z.input<typeof ChatCommand>;
+
 /* ------------------------------------------------------------------ */
 /* Followup (mirrors contracts/commands.py, contracts/models.py)       */
 /* ------------------------------------------------------------------ */
