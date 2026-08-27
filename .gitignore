@@ -31,3 +31,12 @@ __pycache__/
 # when no AGENT_PLATFORM_DATABASE_URL is configured.
 backend/agent-platform.db
 *.db
+
+# Windows NUL redirect artifact (must never be committed)
+nul
+
+# Dev-run logs / live-verify artifacts written to the tree by ad-hoc runs
+backend/_run-api.log
+backend/_run-api.json
+scripts/.verify-live-*.log
+scripts/.verify-live-*.json
