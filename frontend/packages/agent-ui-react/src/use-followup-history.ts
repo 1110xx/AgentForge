@@ -65,8 +65,12 @@ function recordToEntry(
   return {
     followupSeq: record.followup_seq,
     question: record.question,
-    answer: record.answer,
-    answeredAt: record.answered_at,
+    // Protocol FollowupRecord.answer/answered_at are ``nullish`` (undefined
+    // allowed); the hook's FollowupEntry narrows to ``string | null`` — collapse
+    // the undefined arm explicitly so a clean Linux tsc build (no tsbuildinfo
+    // staleness) sees the same types.
+    answer: record.answer ?? null,
+    answeredAt: record.answered_at ?? null,
     clientFollowupId: record.client_followup_id,
     status,
   };
