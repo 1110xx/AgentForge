@@ -89,7 +89,7 @@ wait_http() { # wait_http <port> <path> <attempts>
 # ── 1. 观察栈镜像：宿主拉取 → kind load（离线安全，避免节点直连公网） ──
 echo "== [1/6] pulling + loading observability images into kind nodes =="
 obs_images=(
-  "otel/opentelemetry-collector-contrib:0.115.0"
+  "otel/opentelemetry-collector-contrib:0.121.0"
   "grafana/loki:3.2.1"
   "grafana/tempo:2.5.0"
   "prom/prometheus:v2.55.1"
