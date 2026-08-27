@@ -20,13 +20,13 @@
 images:
   controlPlane:
     repository: localhost:5001/enterprise-agent-platform/control-plane
-    digest: "sha256:ada98b25728d533e5ff7fdff10d80dc38cbd7d673ccf04b777d7f37e235cf497"
+    digest: "sha256:624ad6cf96a739c27e64d6d55d3318f5020b05aa0cb9dfead966d78acfa584e7"
   runtime:
     repository: localhost:5001/enterprise-agent-platform/runtime
-    digest: "sha256:a6ce6f88994c8897fe48b352c2a66a88ef2b5469ccd9e832e76e0ca65bb9e8f1"
+    digest: "sha256:50115e8bf53d7053101e78de1ee6350b75ecf37e17b7299b8f2ad8435a6fc93f"
   frontend:
     repository: localhost:5001/enterprise-agent-platform/frontend
-    digest: "sha256:b3dd088245cd633a0faf1f4c55d2feaafac3fc45c52f4db81154a2d0f3ce0729"
+    digest: "sha256:814099672ebcbd5d029544792b3ba49e2c8b01a3d0a4147074c890b159828e70"
 
 # The whole platform ships together: control plane + orchestrator workers +
 # the nginx-hosted SPA (AgentLauncher). Frontend is part of the production
