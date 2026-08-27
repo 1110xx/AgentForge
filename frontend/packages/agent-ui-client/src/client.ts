@@ -9,10 +9,10 @@
  * snapshot resync when the retention floor is crossed).
  */
 import type {
-  EnterpriseEventEnvelope,
   ChatCommandInput as ChatCommandInputType,
   CreateRunCommand as CreateRunCommandType,
   RunViewSnapshot as RunViewSnapshotType,
+  StreamChunk,
   SurfaceRevision as SurfaceRevisionType,
   FollowupAnswer as FollowupAnswerType,
   FollowupHistoryPage as FollowupHistoryPageType,
@@ -40,6 +40,7 @@ import type { RunProjectionStore } from "./projection.js";
 import {
   parseAgentPlatformSse,
   requireEventStreamResponse,
+  type SseEvent,
 } from "./sse.js";
 import { createIdempotencyKey, delay, normalizeBaseUrl } from "./util.js";
 
@@ -512,11 +513,19 @@ export class AgentPlatformClient {
     );
   }
 
-  /** GET /v1/runs/{run_id}/events/stream — incremental SSE from a cursor. */
+  /** GET /v1/runs/{run_id}/events/stream — incremental SSE from a cursor.
+   *
+   * Yields durable ``EnterpriseEventEnvelope`` frames (replayable, SDD §11.4)
+   * and ephemeral ``StreamChunk`` frames (live-only, SDD §11.5) interleaved.
+   * The caller must route chunks to the live view, not to persistent state.
+   */
   async *streamRunEvents(
     runId: string,
-    options: RequestOptions & { afterEventSeq: number },
-  ): AsyncIterable<EnterpriseEventEnvelope> {
+    options: RequestOptions & {
+      afterEventSeq: number;
+      onChunk?: (chunk: StreamChunk) => void;
+    },
+  ): AsyncIterable<SseEvent> {
     if (options.afterEventSeq < 0) {
       throw new AgentPlatformProtocolError("afterEventSeq must be non-negative");
     }
@@ -549,12 +558,15 @@ export class AgentPlatformClient {
       throw error;
     }
     const body = requireEventStreamResponse(response);
-    for await (const event of parseAgentPlatformSse(body, {
+    for await (const payload of parseAgentPlatformSse(body, {
       onEvent: (value) => {
         this.record({ kind: "sse", runId, eventSeq: value.event_seq });
       },
+      onChunk: (chunk) => {
+        options.onChunk?.(chunk);
+      },
     })) {
-      yield event;
+      yield payload;
     }
   }
 
@@ -711,11 +723,20 @@ export class RunProjectionSynchronizer {
         for await (const event of this.client.streamRunEvents(this.runId, {
           afterEventSeq: this.store.getSnapshot().appliedWatermark,
           signal: this.controller.signal,
+          // Ephemeral live deltas (SDD §11.5): forwarded only to the live
+          // view buffer — never the durable recentEvents cache.
+          onChunk: (chunk) => {
+            this.store.ingestChunk(chunk);
+          },
         })) {
           if (this.controller.signal.aborted) {
             return;
           }
-          this.store.ingestEvent(event);
+          if ("event_seq" in event) {
+            this.store.ingestEvent(event);
+          } else {
+            this.store.ingestChunk(event);
+          }
           this.setStatus("streaming");
           // Fetch surface documents as soon as commit events arrive,
           // rather than waiting for the stream to close (which may be

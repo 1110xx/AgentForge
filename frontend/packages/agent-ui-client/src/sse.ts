@@ -10,7 +10,11 @@
 import {
   ApiErrorEnvelope,
   EnterpriseEventEnvelope,
+  StreamChunk,
 } from "@platform/agent-ui-protocol";
+
+/** One parsed SSE frame: a durable enterprise event or an ephemeral chunk. */
+export type SseEvent = EnterpriseEventEnvelope | StreamChunk;
 import {
   AgentPlatformApiError,
   AgentPlatformSseError,
@@ -70,7 +74,7 @@ function requireWithinLimit(value: string, limit: number): void {
   }
 }
 
-function decodePayload(frame: SseFrame, limit: number): EnterpriseEventEnvelope {
+function decodePayload(frame: SseFrame, limit: number): SseEvent {
   requireWithinLimit(frame.data ?? "", limit);
   const data = frame.data;
   if (data === null) {
@@ -82,6 +86,14 @@ function decodePayload(frame: SseFrame, limit: number): EnterpriseEventEnvelope 
   } catch {
     throw new AgentPlatformSseError("invalid-json");
   }
+  if (frame.event === "stream-chunk") {
+    // Ephemeral live delta (SDD §11.5): no event_seq, no id, never replayed.
+    const chunk = StreamChunk.safeParse(value);
+    if (!chunk.success) {
+      throw new AgentPlatformSseError("invalid-event");
+    }
+    return chunk.data;
+  }
   if (frame.event === "platform.resync-required") {
     const envelope = ApiErrorEnvelope.safeParse(value);
     if (!envelope.success) {
@@ -91,7 +103,7 @@ function decodePayload(frame: SseFrame, limit: number): EnterpriseEventEnvelope 
   }
   if (frame.event !== null && !frame.event.startsWith("platform.")) {
     // The stream only carries registered enterprise event types plus
-    // platform.* control frames; anything else is unsupported.
+    // platform.* / stream-chunk control frames; anything else is unsupported.
     const envelope = EnterpriseEventEnvelope.safeParse(value);
     if (!envelope.success) {
       throw new AgentPlatformSseError("invalid-event");
@@ -109,6 +121,7 @@ function decodePayload(frame: SseFrame, limit: number): EnterpriseEventEnvelope 
 export interface ParseSseOptions {
   readonly maxEventBytes?: number;
   readonly onEvent?: (event: EnterpriseEventEnvelope) => void;
+  readonly onChunk?: (chunk: StreamChunk) => void;
 }
 
 /**
@@ -120,7 +133,7 @@ export interface ParseSseOptions {
 export async function* parseAgentPlatformSse(
   body: ReadableStream<Uint8Array>,
   options: ParseSseOptions = {},
-): AsyncIterable<EnterpriseEventEnvelope> {
+): AsyncIterable<SseEvent> {
   const reader = body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: true });
   const limit = options.maxEventBytes ?? MAX_SSE_EVENT_BYTES;
@@ -141,12 +154,18 @@ export async function* parseAgentPlatformSse(
         buffer = buffer.slice(boundary.index + boundary.length);
         const frame = parseSseFrame(current);
         if (frame.data === null) continue; // comment/heartbeat-only frame
-        const event = decodePayload(frame, limit);
-        if (frame.id !== null && frame.id !== String(event.event_seq)) {
-          throw new AgentPlatformSseError("invalid-event");
+        const payload = decodePayload(frame, limit);
+        if ("event_seq" in payload) {
+          // Durable enterprise event (SDD §11.4) — id must match its seq.
+          if (frame.id !== null && frame.id !== String(payload.event_seq)) {
+            throw new AgentPlatformSseError("invalid-event");
+          }
+          options.onEvent?.(payload);
+        } else {
+          // Ephemeral stream-chunk (SDD §11.5) — live view only.
+          options.onChunk?.(payload);
         }
-        options.onEvent?.(event);
-        yield event;
+        yield payload;
         requireWithinLimit(buffer, limit);
       }
       if (done) break;
@@ -154,12 +173,16 @@ export async function* parseAgentPlatformSse(
     if (buffer.trim() !== "") {
       const frame = parseSseFrame(buffer);
       if (frame.data !== null) {
-        const event = decodePayload(frame, limit);
-        if (frame.id !== null && frame.id !== String(event.event_seq)) {
-          throw new AgentPlatformSseError("invalid-event");
+        const payload = decodePayload(frame, limit);
+        if ("event_seq" in payload) {
+          if (frame.id !== null && frame.id !== String(payload.event_seq)) {
+            throw new AgentPlatformSseError("invalid-event");
+          }
+          options.onEvent?.(payload);
+        } else {
+          options.onChunk?.(payload);
         }
-        options.onEvent?.(event);
-        yield event;
+        yield payload;
       }
     }
     exhausted = true;

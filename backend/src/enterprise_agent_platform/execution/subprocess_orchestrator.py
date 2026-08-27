@@ -44,6 +44,7 @@ from enterprise_agent_platform.contracts.events import (
     ActionProposalPayload,
     ArtifactVersionPayload,
     EnterpriseEventEnvelope,
+    EVENT_PAYLOAD_CONTRACTS,
 )
 from enterprise_agent_platform.control.checkpoints import CheckpointCommit, commit_checkpoint
 from enterprise_agent_platform.control.context import RequestContext
@@ -59,15 +60,18 @@ from enterprise_agent_platform.domain.records import (
     RunRecord,
 )
 from enterprise_agent_platform.execution.completer import RunCompleter
+from enterprise_agent_platform.platform.run_chunks import RunChunkSink
 from enterprise_agent_platform.platform.telemetry import DiagnosticTelemetry
 from enterprise_agent_platform.execution.pipe_transport import (
     OP_BOOTSTRAP,
     OP_COMMIT_CHECKPOINT,
     OP_COMMIT_FINAL,
+    OP_EMIT_EVENT,
     OP_HEARTBEAT,
     OP_MODEL_CALL,
     OP_PROPOSE_ACTION,
     OP_PUBLISH_ARTIFACT,
+    OP_STREAM_CHUNK,
     OP_READ_TOOL,
     OP_RECORD_FAILURE,
     OP_RESTORE,
@@ -97,6 +101,7 @@ class SubprocessOrchestrator:
         python: str | None = None,
         max_runtime_seconds: float = 120.0,
         telemetry: DiagnosticTelemetry | None = None,
+        chunk_relay: RunChunkSink | None = None,
     ) -> None:
         self._store = store
         self._control = control
@@ -106,6 +111,9 @@ class SubprocessOrchestrator:
         self._max_runtime_seconds = max_runtime_seconds
         self._max_retries = 2  # max crash-auto-retry count per Attempt
         self._completer = RunCompleter(store, telemetry=telemetry)
+        # Live-streaming bridge: ephemeral stream-chunk sink (SDD §11.5).
+        # None disables the ephemeral link; durable bridge events still append.
+        self._chunk_relay = chunk_relay
         # One model session handle per Run (children are destroyed per attempt,
         # but the parent-side session provider is long-lived).
         self._sessions: dict[str, SessionHandle] = {}
@@ -253,6 +261,10 @@ class SubprocessOrchestrator:
         except Exception as error:
             logger.exception("runtime op %s crashed", op)
             response = error_response(request_id, "INTERNAL_ERROR", str(error))
+        if request_id == 0:
+            # Fire-and-forget notify frame (stream_chunk): the child never
+            # waits for a reply, so writing one back is wasted pipe traffic.
+            return
         assert process.stdin is not None
         try:
             process.stdin.write(json.dumps(response, ensure_ascii=False).encode() + b"\n")
@@ -260,6 +272,121 @@ class SubprocessOrchestrator:
         except (BrokenPipeError, ConnectionResetError):
             # The child exited before reading the response — nothing to do.
             logger.debug("child pipe closed before response for op %s", op)
+
+    # ── Live-streaming bridge ─────────────────────────────────────────────
+
+    # The child Runtime may only emit the three bridge event types through
+    # OP_EMIT_EVENT; everything else is rejected (the public event log is not
+    # a free-form child channel).
+    _BRIDGE_EVENT_TYPES = frozenset(
+        {
+            EventType.TOOL_EXECUTION_STARTED,
+            EventType.TOOL_EXECUTION_ENDED,
+            EventType.AGENT_TURN_COMPLETED,
+        }
+    )
+
+    async def _op_emit_event(
+        self,
+        ticket: DispatchTicket,
+        ctx: RequestContext,
+        kwargs: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Append a durable bridge event emitted by the child Runtime.
+
+        SDD §11.4: tool.execution.started/ended and agent.turn.completed are
+        first-class platform events (enterprise-event/v1) appended to the
+        durable event log with the child's attempt bound as attempt_id; Outbox
+        then feeds the same SSE ``event`` frames any other platform event uses.
+        """
+        event_type = str(kwargs.get("event_type", ""))
+        payload = kwargs.get("payload") or {}
+        try:
+            parsed_type = EventType(event_type)
+        except ValueError:
+            raise PlatformError(
+                "INVALID_EVENT_TYPE", f"child emitted unknown event type: {event_type}"
+            )
+        if parsed_type not in self._BRIDGE_EVENT_TYPES:
+            raise PlatformError(
+                "EVENT_TYPE_NOT_ALLOWED",
+                f"child may not emit {event_type} through the bridge",
+            )
+        payload_type, payload_schema = EVENT_PAYLOAD_CONTRACTS[parsed_type]
+        try:
+            data = payload_type.model_validate(payload)
+        except ValueError as error:
+            # pydantic v2 ValidationError subclasses ValueError.
+            raise PlatformError(
+                "INVALID_EVENT_PAYLOAD",
+                f"bridge event {event_type} payload failed contract: {error}",
+            )
+        now = datetime.now(UTC)
+        async with self._store.transaction() as tx:
+            run = await tx.lock_run(ticket.tenant_id, ticket.run_id)
+            if run.status not in {RunState.QUEUED, RunState.RUNNING}:
+                raise PlatformError(
+                    "RUN_NOT_ACTIVE",
+                    f"bridge event skipped: run={run.run_id} status={run.status}",
+                )
+            envelope = EnterpriseEventEnvelope(
+                schema_version="enterprise-event/v1",
+                event_id=self._store.new_id("event"),
+                tenant_id=ticket.tenant_id,
+                run_id=run.run_id,
+                event_seq=run.last_event_seq + 1,
+                event_type=parsed_type,
+                occurred_at=now,
+                producer_service="runtime-child",
+                payload_schema=payload_schema,
+                payload=data,
+                attempt_id=ticket.attempt_id,
+                trace_id=ctx.trace_id,
+            )
+            await tx.append_event(envelope, run.last_event_seq)
+            await tx.insert_outbox(
+                OutboxMessageRecord(
+                    tenant_id=ticket.tenant_id,
+                    message_id=self._store.new_id("outbox"),
+                    run_id=run.run_id,
+                    topic=parsed_type.value,
+                    payload={"event": envelope.model_dump(mode="json")},
+                    event_id=envelope.event_id,
+                    aggregate_version=run.version + 1,
+                    created_at=now,
+                    published_at=None,
+                )
+            )
+            await tx.replace_run_cas(
+                replace(
+                    run,
+                    version=run.version + 1,
+                    last_event_seq=envelope.event_seq,
+                    updated_at=now,
+                ),
+                run.version,
+            )
+        return {"status": "accepted", "event_type": event_type}
+
+    async def _op_stream_chunk(
+        self,
+        ticket: DispatchTicket,
+        kwargs: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Forward an ephemeral stream chunk to the in-memory relay.
+
+        SDD §11.5: ToolExecutionUpdate / StreamThinkingDelta / StreamTextDelta
+        are NOT persisted. The relay is drained by the SSE endpoint which
+        frames them as ``stream-chunk`` frames; on disconnect they are dropped
+        — replay comes from the durable ``agent.turn.completed`` event.
+        """
+        chunk = dict(kwargs.get("chunk") or {})
+        chunk["run_id"] = ticket.run_id
+        chunk["attempt_id"] = ticket.attempt_id
+        relay = self._chunk_relay
+        if relay is not None:
+            relay.push(ticket.run_id, chunk)
+        return {}
 
     # ── Operation handlers ────────────────────────────────────────────────
 
@@ -284,6 +411,10 @@ class SubprocessOrchestrator:
             return await self._op_publish_artifact(ticket, ctx, kwargs)
         if op == OP_PROPOSE_ACTION:
             return await self._op_propose_action(ticket, ctx, kwargs)
+        if op == OP_EMIT_EVENT:
+            return await self._op_emit_event(ticket, ctx, kwargs)
+        if op == OP_STREAM_CHUNK:
+            return await self._op_stream_chunk(ticket, kwargs)
         if op == OP_COMMIT_CHECKPOINT:
             agent_state = kwargs.get("agent_state") or {}
             schema_version = str(

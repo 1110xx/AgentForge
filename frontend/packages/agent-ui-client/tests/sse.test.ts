@@ -2,7 +2,7 @@
  * SSE parser tests: framing (CRLF/LF), heartbeat/comments, resync frames,
  * id/event_seq consistency, and fail-closed on malformed input.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AgentPlatformSseError } from "../src/errors.js";
 import { parseAgentPlatformSse } from "../src/sse.js";
 
@@ -105,5 +105,70 @@ describe("parseAgentPlatformSse", () => {
     });
     const iterator = parseAgentPlatformSse(stream_);
     await expect(iterator.next()).rejects.toMatchObject({ code: "invalid-utf8" });
+  });
+});
+
+describe("parseAgentPlatformSse stream-chunks (SDD §11.5)", () => {
+  it("parses an ephemeral stream-chunk frame without id/event_seq", async () => {
+    const text = [
+      "event: stream-chunk",
+      `data: {"run_id":"run_demo","attempt_id":"a1","kind":"thinking.delta","delta":"正在分析…"}`,
+      "",
+      "",
+    ].join("\n");
+    const events = await collect(text);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      run_id: "run_demo",
+      kind: "thinking.delta",
+      delta: "正在分析…",
+    });
+    expect("event_seq" in (events[0] as object)).toBe(false);
+  });
+
+  it("interleaves durable events and ephemeral chunks without id checks on chunks", async () => {
+    const text =
+      `${eventFrame(4)}` +
+      [
+        "event: stream-chunk",
+        `data: {"run_id":"run_demo","kind":"tool.execution.started","call_id":"c1","tool_name":"synthetic.results.read"}`,
+        "",
+        "",
+      ].join("\n");
+    const events = await collect(text);
+    expect(events).toHaveLength(2);
+    expect((events[0] as { event_seq: number }).event_seq).toBe(4);
+    expect(events[1]).toMatchObject({
+      kind: "tool.execution.started",
+      tool_name: "synthetic.results.read",
+    });
+  });
+
+  it("routes frames to onEvent / onChunk respectively", async () => {
+    const onEvent = vi.fn();
+    const onChunk = vi.fn();
+    const text =
+      `${eventFrame(5)}` +
+      [
+        "event: stream-chunk",
+        `data: {"run_id":"run_demo","kind":"text.delta","delta":"hi"}`,
+        "",
+        "",
+      ].join("\n");
+    const received: unknown[] = [];
+    for await (const item of parseAgentPlatformSse(stream(text), {
+      onEvent,
+      onChunk,
+    })) {
+      received.push(item);
+    }
+    expect(received).toHaveLength(2);
+    expect(onEvent).toHaveBeenCalledTimes(1);
+    expect(onChunk).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects malformed stream-chunk payloads", async () => {
+    const text = `event: stream-chunk\ndata: {"run_id":"run_demo","kind":"bogus.kind"}\n\n`;
+    await expect(collect(text)).rejects.toMatchObject({ code: "invalid-event" });
   });
 });

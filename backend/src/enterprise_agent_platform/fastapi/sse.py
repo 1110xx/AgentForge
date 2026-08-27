@@ -14,6 +14,7 @@ from enterprise_agent_platform.contracts.errors import ApiErrorEnvelope
 from enterprise_agent_platform.contracts.events import EnterpriseEventEnvelope
 from enterprise_agent_platform.control.views import RunQueryService
 from enterprise_agent_platform.persistence.protocol import PlatformError
+from enterprise_agent_platform.platform.run_chunks import RunChunkSource
 
 
 @runtime_checkable
@@ -53,6 +54,23 @@ def event_frame(event: EnterpriseEventEnvelope) -> str:
     return f"id: {event.event_seq}\nevent: {event.event_type.value}\ndata: {data}\n\n"
 
 
+def chunk_frame(chunk: dict[str, object]) -> str:
+    """SSE frame for one ephemeral ``stream-chunk`` (SDD §11.5).
+
+    Unlike ``event_frame`` this carries no ``id``/event_seq: stream chunks are
+    not durable events, are not replayed after a reconnect and are dropped on
+    disconnect. The frontend renders them for the live view only; persistence
+    and replay come from the durable ``agent.turn.completed`` ``event`` frame.
+    """
+    data = json.dumps(
+        chunk,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return f"event: stream-chunk\ndata: {data}\n\n"
+
+
 def resync_required_frame(trace_id: str | None) -> str:
     envelope = ApiErrorEnvelope(
         schema_version="api-error/v1",
@@ -80,6 +98,8 @@ async def stream_run_events(
     heartbeat_seconds: float,
     max_lifetime_seconds: float,
     batch_size: int = 100,
+    chunks: RunChunkSource | None = None,
+    chunk_batch_size: int = 100,
 ) -> AsyncIterator[str]:
     if heartbeat_seconds <= 0 or max_lifetime_seconds <= 0:
         raise ValueError("SSE heartbeat and maximum lifetime must be positive")
@@ -91,6 +111,14 @@ async def stream_run_events(
         while time.monotonic() < deadline:
             if await request.is_disconnected():
                 return
+            # Ephemeral link: drain live stream chunks before the durable page
+            # (SDD §11.5). A chunk batch is bounded; anything still queued stays
+            # for the next drain and is dropped once the connection closes.
+            if chunks is not None:
+                for chunk in chunks.drain(run_id, limit=chunk_batch_size):
+                    if time.monotonic() >= deadline or await request.is_disconnected():
+                        return
+                    yield chunk_frame(chunk)
             try:
                 page = await query.get_events(
                     tenant_id,

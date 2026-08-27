@@ -12,7 +12,7 @@ from .enums import (
     RunState,
     ToolInvocationState,
 )
-from .models import RunEventPage, StrictModel
+from .models import JsonValue, RunEventPage, StrictModel
 
 
 class RunCreatedPayload(StrictModel):
@@ -75,6 +75,56 @@ class ActionProposalPayload(StrictModel):
     risk_class: str
 
 
+class ToolCallSummary(StrictModel):
+    """One aggregated tool call inside an ``agent.turn.completed`` payload."""
+
+    call_id: str
+    tool_name: str
+    status: Literal["succeeded", "failed"]
+    is_error: bool = False
+
+
+class ToolExecutionStartedPayload(StrictModel):
+    """Persistent bridge event: pi-agent-core ToolExecutionStartEvent.
+
+    Durable (append_event -> PG -> Outbox -> SSE) so a reconnecting frontend
+    can render the tool activity from the event log alone. ``args`` is the
+    bounded, redacted-at-source argument snapshot; never raw credentials.
+    """
+
+    kind: Literal["tool.execution.started"]
+    call_id: str
+    tool_name: str
+    args: dict[str, JsonValue] | None = None
+
+
+class ToolExecutionEndedPayload(StrictModel):
+    """Persistent bridge event: pi-agent-core ToolExecutionEndEvent."""
+
+    kind: Literal["tool.execution.ended"]
+    call_id: str
+    tool_name: str
+    status: Literal["succeeded", "failed"]
+    is_error: bool = False
+    result: dict[str, JsonValue] | None = None
+
+
+class AgentTurnCompletedPayload(StrictModel):
+    """Persistent bridge event: full-turn aggregation (SDD §11.4).
+
+    Carries the complete aggregated thinking, the complete assistant message
+    text and the tool-call summary for one turn. Replay-safe: a freshly
+    opened or reconnected frontend renders the turn from this single event
+    instead of thousands of ephemeral stream-chunks.
+    """
+
+    kind: Literal["agent.turn.completed"]
+    turn_seq: Annotated[int, Field(ge=1)]
+    thinking: str = ""
+    message_text: str = ""
+    tool_calls: tuple[ToolCallSummary, ...] = ()
+
+
 EventPayload = Annotated[
     RunCreatedPayload
     | RunStatusChangedPayload
@@ -84,7 +134,10 @@ EventPayload = Annotated[
     | EffectStatusChangedPayload
     | UiSurfaceCommittedPayload
     | ArtifactVersionPayload
-    | ActionProposalPayload,
+    | ActionProposalPayload
+    | ToolExecutionStartedPayload
+    | ToolExecutionEndedPayload
+    | AgentTurnCompletedPayload,
     Field(discriminator="kind"),
 ]
 
@@ -101,6 +154,18 @@ EVENT_PAYLOAD_CONTRACTS: dict[EventType, tuple[type[StrictModel], str]] = {
     EventType.UI_SURFACE_COMMITTED: (UiSurfaceCommittedPayload, "a2ui-surface/v0.9.1"),
     EventType.ARTIFACT_VERSION: (ArtifactVersionPayload, "artifact-version/v1"),
     EventType.ACTION_PROPOSAL: (ActionProposalPayload, "action-proposal/v1"),
+    EventType.TOOL_EXECUTION_STARTED: (
+        ToolExecutionStartedPayload,
+        "tool-execution/v1",
+    ),
+    EventType.TOOL_EXECUTION_ENDED: (
+        ToolExecutionEndedPayload,
+        "tool-execution/v1",
+    ),
+    EventType.AGENT_TURN_COMPLETED: (
+        AgentTurnCompletedPayload,
+        "agent-turn/v1",
+    ),
 }
 
 

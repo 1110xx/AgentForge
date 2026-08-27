@@ -166,6 +166,9 @@ export const EVENT_TYPES = [
   "approval.decided",
   "effect.status.changed",
   "ui.surface.committed",
+  "tool.execution.started",
+  "tool.execution.ended",
+  "agent.turn.completed",
 ] as const;
 export const EventType = z.enum(EVENT_TYPES);
 export type EventType = z.infer<typeof EventType>;
@@ -242,6 +245,55 @@ export type UiSurfaceCommittedPayload = z.infer<
   typeof UiSurfaceCommittedPayload
 >;
 
+export const ToolCallSummarySchema = z
+  .object({
+    call_id: z.string(),
+    tool_name: z.string(),
+    status: z.enum(["succeeded", "failed"]),
+    is_error: z.boolean().default(false),
+  })
+  .strict();
+export type ToolCallSummarySchema = z.infer<typeof ToolCallSummarySchema>;
+
+export const ToolExecutionStartedPayload = z
+  .object({
+    kind: z.literal("tool.execution.started"),
+    call_id: z.string(),
+    tool_name: z.string(),
+    args: JsonObjectSchema.nullable().optional(),
+  })
+  .strict();
+export type ToolExecutionStartedPayload = z.infer<
+  typeof ToolExecutionStartedPayload
+>;
+
+export const ToolExecutionEndedPayload = z
+  .object({
+    kind: z.literal("tool.execution.ended"),
+    call_id: z.string(),
+    tool_name: z.string(),
+    status: z.enum(["succeeded", "failed"]),
+    is_error: z.boolean().default(false),
+    result: JsonObjectSchema.nullable().optional(),
+  })
+  .strict();
+export type ToolExecutionEndedPayload = z.infer<
+  typeof ToolExecutionEndedPayload
+>;
+
+export const AgentTurnCompletedPayload = z
+  .object({
+    kind: z.literal("agent.turn.completed"),
+    turn_seq: PositiveInt,
+    thinking: z.string().default(""),
+    message_text: z.string().default(""),
+    tool_calls: z.array(ToolCallSummarySchema).default([]),
+  })
+  .strict();
+export type AgentTurnCompletedPayload = z.infer<
+  typeof AgentTurnCompletedPayload
+>;
+
 export const EventPayload = z.discriminatedUnion("kind", [
   RunCreatedPayload,
   RunStatusChangedPayload,
@@ -250,6 +302,9 @@ export const EventPayload = z.discriminatedUnion("kind", [
   ApprovalDecidedPayload,
   EffectStatusChangedPayload,
   UiSurfaceCommittedPayload,
+  ToolExecutionStartedPayload,
+  ToolExecutionEndedPayload,
+  AgentTurnCompletedPayload,
 ]);
 export type EventPayload = z.infer<typeof EventPayload>;
 
@@ -279,6 +334,18 @@ export const EVENT_PAYLOAD_CONTRACTS = {
   "ui.surface.committed": {
     kind: "ui.surface.committed",
     payloadSchema: "a2ui-surface/v0.9.1",
+  },
+  "tool.execution.started": {
+    kind: "tool.execution.started",
+    payloadSchema: "tool-execution/v1",
+  },
+  "tool.execution.ended": {
+    kind: "tool.execution.ended",
+    payloadSchema: "tool-execution/v1",
+  },
+  "agent.turn.completed": {
+    kind: "agent.turn.completed",
+    payloadSchema: "agent-turn/v1",
   },
 } as const;
 
@@ -319,6 +386,42 @@ export const EnterpriseEventEnvelope = z
 export type EnterpriseEventEnvelope = z.infer<
   typeof EnterpriseEventEnvelope
 >;
+
+/* ------------------------------------------------------------------ */
+/* Ephemeral stream-chunk (live-streaming bridge, SDD §11.5)           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One ephemeral ``stream-chunk`` SSE frame payload.
+ *
+ * NOT a durable enterprise event: never persisted, no event_seq, no replay.
+ * The backend forwards pi-agent-core ToolExecutionUpdate / StreamThinking /
+ * StreamText deltas through an in-memory relay and frames them as
+ * ``event: stream-chunk``; a reconnect does not replay them — the frontend
+ * re-renders the turn from the durable ``agent.turn.completed`` event instead.
+ */
+export const STREAM_CHUNK_KINDS = [
+  "tool.execution.started",
+  "tool.execution.updated",
+  "tool.execution.ended",
+  "thinking.delta",
+  "text.delta",
+] as const;
+
+export const StreamChunk = z
+  .object({
+    run_id: z.string(),
+    attempt_id: z.string().optional(),
+    kind: z.enum(STREAM_CHUNK_KINDS),
+    delta: z.string().optional(),
+    partial: z.string().nullable().optional(),
+    call_id: z.string().optional(),
+    tool_name: z.string().optional(),
+    args: JsonObjectSchema.nullable().optional(),
+    is_error: z.boolean().optional(),
+  })
+  .strict();
+export type StreamChunk = z.infer<typeof StreamChunk>;
 
 /* ------------------------------------------------------------------ */
 /* Capability claims (mirrors contracts/models.py)                     */
@@ -864,16 +967,23 @@ export const FollowupAnswer = z
   .strict();
 export type FollowupAnswer = z.infer<typeof FollowupAnswer>;
 
-/** 历史记录条目 */
+/**
+ * 历史记录条目
+ *
+ * Mirrors backend ``FollowupRecord`` in contracts/models.py:
+ * ``status`` is PENDING for queued followups (no answer yet) or ANSWERED;
+ * ``answer``/``answered_at`` are null while PENDING.
+ */
 export const FollowupRecord = z
   .object({
     schema_version: z.literal("followup-record/v1"),
     run_id: z.string(),
     followup_seq: NonNegativeInt,
     question: z.string(),
-    answer: z.string(),
-    answered_at: IsoDateTime,
+    answer: z.string().nullish(),
+    answered_at: IsoDateTime.nullish(),
     client_followup_id: z.string(),
+    status: z.enum(["PENDING", "ANSWERED"]),
   })
   .strict();
 export type FollowupRecord = z.infer<typeof FollowupRecord>;

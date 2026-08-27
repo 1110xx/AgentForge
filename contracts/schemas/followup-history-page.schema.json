@@ -1,0 +1,108 @@
+{
+  "$defs": {
+    "FollowupRecord": {
+      "additionalProperties": false,
+      "description": "One question/answer (or in-flight question) stored for a Run.\n\n``PENDING`` rows are durably queued for a fresh Attempt and have no answer\nyet; ``ANSWERED`` rows carry the persisted answer (SDD ¡ì6.4).",
+      "properties": {
+        "answer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Answer"
+        },
+        "answered_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Answered At"
+        },
+        "client_followup_id": {
+          "title": "Client Followup Id",
+          "type": "string"
+        },
+        "followup_seq": {
+          "minimum": 0,
+          "title": "Followup Seq",
+          "type": "integer"
+        },
+        "question": {
+          "title": "Question",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "followup-record/v1",
+          "default": "followup-record/v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "default": "ANSWERED",
+          "enum": [
+            "PENDING",
+            "ANSWERED"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "followup_seq",
+        "question",
+        "client_followup_id"
+      ],
+      "title": "FollowupRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Paginated followup history for a Run.",
+  "properties": {
+    "records": {
+      "items": {
+        "$ref": "#/$defs/FollowupRecord"
+      },
+      "title": "Records",
+      "type": "array"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "followup-history-page/v1",
+      "default": "followup-history-page/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "total_count": {
+      "minimum": 0,
+      "title": "Total Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "run_id",
+    "total_count",
+    "records"
+  ],
+  "title": "FollowupHistoryPage",
+  "type": "object"
+}

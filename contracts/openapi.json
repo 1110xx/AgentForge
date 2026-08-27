@@ -41,6 +41,46 @@
         "title": "ActionProposalPayload",
         "type": "object"
       },
+      "AgentTurnCompletedPayload": {
+        "additionalProperties": false,
+        "description": "Persistent bridge event: full-turn aggregation (SDD §11.4).\n\nCarries the complete aggregated thinking, the complete assistant message\ntext and the tool-call summary for one turn. Replay-safe: a freshly\nopened or reconnected frontend renders the turn from this single event\ninstead of thousands of ephemeral stream-chunks.",
+        "properties": {
+          "kind": {
+            "const": "agent.turn.completed",
+            "title": "Kind",
+            "type": "string"
+          },
+          "message_text": {
+            "default": "",
+            "title": "Message Text",
+            "type": "string"
+          },
+          "thinking": {
+            "default": "",
+            "title": "Thinking",
+            "type": "string"
+          },
+          "tool_calls": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ToolCallSummary"
+            },
+            "title": "Tool Calls",
+            "type": "array"
+          },
+          "turn_seq": {
+            "minimum": 1.0,
+            "title": "Turn Seq",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "turn_seq"
+        ],
+        "title": "AgentTurnCompletedPayload",
+        "type": "object"
+      },
       "ApiErrorEnvelope": {
         "additionalProperties": false,
         "properties": {
@@ -759,12 +799,15 @@
             "discriminator": {
               "mapping": {
                 "action.proposal": "#/components/schemas/ActionProposalPayload",
+                "agent.turn.completed": "#/components/schemas/AgentTurnCompletedPayload",
                 "approval.decided": "#/components/schemas/ApprovalDecidedPayload",
                 "artifact.version": "#/components/schemas/ArtifactVersionPayload",
                 "attempt.lifecycle": "#/components/schemas/AttemptLifecyclePayload",
                 "effect.status.changed": "#/components/schemas/EffectStatusChangedPayload",
                 "run.created": "#/components/schemas/RunCreatedPayload",
                 "run.status.changed": "#/components/schemas/RunStatusChangedPayload",
+                "tool.execution.ended": "#/components/schemas/ToolExecutionEndedPayload",
+                "tool.execution.started": "#/components/schemas/ToolExecutionStartedPayload",
                 "tool.invocation.recorded": "#/components/schemas/ToolInvocationRecordedPayload",
                 "ui.surface.committed": "#/components/schemas/UiSurfaceCommittedPayload"
               },
@@ -797,6 +840,15 @@
               },
               {
                 "$ref": "#/components/schemas/ActionProposalPayload"
+              },
+              {
+                "$ref": "#/components/schemas/ToolExecutionStartedPayload"
+              },
+              {
+                "$ref": "#/components/schemas/ToolExecutionEndedPayload"
+              },
+              {
+                "$ref": "#/components/schemas/AgentTurnCompletedPayload"
               }
             ],
             "title": "Payload"
@@ -859,7 +911,10 @@
           "effect.status.changed",
           "ui.surface.committed",
           "artifact.version",
-          "action.proposal"
+          "action.proposal",
+          "tool.execution.started",
+          "tool.execution.ended",
+          "agent.turn.completed"
         ],
         "title": "EventType",
         "type": "string"
@@ -2210,6 +2265,134 @@
           "revision"
         ],
         "title": "SurfaceSummary",
+        "type": "object"
+      },
+      "ToolCallSummary": {
+        "additionalProperties": false,
+        "description": "One aggregated tool call inside an ``agent.turn.completed`` payload.",
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "is_error": {
+            "default": false,
+            "title": "Is Error",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tool_name": {
+            "title": "Tool Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_id",
+          "tool_name",
+          "status"
+        ],
+        "title": "ToolCallSummary",
+        "type": "object"
+      },
+      "ToolExecutionEndedPayload": {
+        "additionalProperties": false,
+        "description": "Persistent bridge event: pi-agent-core ToolExecutionEndEvent.",
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "is_error": {
+            "default": false,
+            "title": "Is Error",
+            "type": "boolean"
+          },
+          "kind": {
+            "const": "tool.execution.ended",
+            "title": "Kind",
+            "type": "string"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "status": {
+            "enum": [
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tool_name": {
+            "title": "Tool Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "call_id",
+          "tool_name",
+          "status"
+        ],
+        "title": "ToolExecutionEndedPayload",
+        "type": "object"
+      },
+      "ToolExecutionStartedPayload": {
+        "additionalProperties": false,
+        "description": "Persistent bridge event: pi-agent-core ToolExecutionStartEvent.\n\nDurable (append_event -> PG -> Outbox -> SSE) so a reconnecting frontend\ncan render the tool activity from the event log alone. ``args`` is the\nbounded, redacted-at-source argument snapshot; never raw credentials.",
+        "properties": {
+          "args": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Args"
+          },
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "tool.execution.started",
+            "title": "Kind",
+            "type": "string"
+          },
+          "tool_name": {
+            "title": "Tool Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "call_id",
+          "tool_name"
+        ],
+        "title": "ToolExecutionStartedPayload",
         "type": "object"
       },
       "ToolInvocationRecordedPayload": {

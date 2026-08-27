@@ -58,10 +58,12 @@ from enterprise_agent_platform.execution.pipe_transport import (
     OP_BOOTSTRAP,
     OP_COMMIT_CHECKPOINT,
     OP_COMMIT_FINAL,
+    OP_EMIT_EVENT,
     OP_HEARTBEAT,
     OP_MODEL_CALL,
     OP_RECORD_FAILURE,
     OP_RESTORE,
+    OP_STREAM_CHUNK,
     PipeClient,
     PipeError,
 )
@@ -81,6 +83,29 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Pipe-based implementations of legacy protocol types
 # ---------------------------------------------------------------------------
+
+
+class PipeAgentEventSink:
+    """Transport implementation of the live-streaming bridge (SDD §11.4/11.5).
+
+    Durable bridge events (tool.execution.started/ended, agent.turn.completed)
+    are sent as regular request/response ops so the parent can append them to
+    the durable event log and reply; ephemeral stream chunks are fire-and-forget
+    (``send_notify``, id=0, no reply) so the Agent loop never blocks on them.
+    """
+
+    def __init__(self, client: PipeClient) -> None:
+        self._client = client
+
+    async def emit_event(
+        self, *, event_type: str, payload: dict[str, object]
+    ) -> None:
+        await self._client.request(
+            OP_EMIT_EVENT, event_type=event_type, payload=payload
+        )
+
+    async def stream_chunk(self, *, chunk: dict[str, object]) -> None:
+        await self._client.send_notify(OP_STREAM_CHUNK, chunk=chunk)
 
 
 def _context_dict(context: RuntimeContext) -> dict[str, object]:
@@ -452,6 +477,12 @@ async def _main() -> int:
             control,
             identity_provider=_EnvIdentityProvider(),
         )
+
+        # Live-streaming bridge (SDD §11.4/§11.5): durable bridge events via
+        # OP_EMIT_EVENT (parent appends an EnterpriseEventEnvelope), ephemeral
+        # deltas via OP_STREAM_CHUNK (parent forwards to the in-memory relay
+        # only — never persisted). Both are fire-safe on the pipe.
+        runtime.set_event_sink(PipeAgentEventSink(client))
 
         # Set up tools
         runtime.set_tools(

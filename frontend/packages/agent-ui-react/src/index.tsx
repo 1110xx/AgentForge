@@ -43,6 +43,7 @@ import {
 } from "@platform/agent-ui-catalog";
 import type { HostBridgeCapabilities } from "@platform/agent-ui-protocol/host";
 import { FollowupPanel } from "./followup-panel.js";
+import { LiveActivityPanel } from "./live-activity.js";
 
 export type { RunProjectionSnapshot } from "@platform/agent-ui-client";
 export type {
@@ -52,6 +53,7 @@ export type {
 export { EAP_THEME } from "@platform/agent-ui-catalog";
 export type { HostBridgeCapabilities } from "@platform/agent-ui-protocol/host";
 export { FollowupPanel } from "./followup-panel.js";
+export { LiveActivityPanel } from "./live-activity.js";
 export {
   useFollowupHistory,
   type FollowupEntry,
@@ -317,6 +319,10 @@ export function AgentPanel({ runId }: AgentPanelProps): ReactElement | null {
           </div>
         ))}
       </div>
+      {/* Live agent activity: durable turns (replay) + ephemeral stream
+          chunks (typewriter) — SDD §11.4/§11.5. */}
+      <LiveActivityPanel projection={projection} />
+
       <div style={sectionStyle}>
         {surfaces.length === 0 ? (
           <div style={{ color: EAP_THEME.secondaryText, padding: "8px 0" }}>

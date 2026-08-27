@@ -20,9 +20,10 @@ interface MockFollowupRecord {
   run_id: string;
   followup_seq: number;
   question: string;
-  answer: string;
-  answered_at: string;
+  answer: string | null;
+  answered_at: string | null;
   client_followup_id: string;
+  status: "PENDING" | "ANSWERED";
 }
 
 const OCCURRED_AT = "2026-08-07T00:00:00Z";
@@ -397,6 +398,7 @@ export function createMockFetch(): typeof fetch {
         answer,
         answered_at: answeredAt,
         client_followup_id: body.client_followup_id,
+        status: "ANSWERED",
       };
       const records = followupStore.get(runId) ?? [];
       records.push(record);
@@ -422,6 +424,7 @@ export function createMockFetch(): typeof fetch {
         answer: r.answer,
         answered_at: r.answered_at,
         client_followup_id: r.client_followup_id,
+        status: r.status,
       }));
       return jsonResponse(200, {
         schema_version: "followup-history-page/v1",

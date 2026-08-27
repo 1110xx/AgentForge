@@ -282,6 +282,7 @@ def create_agent_platform_router(container: AgentPlatformContainer) -> APIRouter
             heartbeat_seconds=container.sse_heartbeat_seconds,
             max_lifetime_seconds=container.sse_max_lifetime_seconds,
             batch_size=container.sse_batch_size,
+            chunks=container.chunk_streamer,
         )
         return StreamingResponse(
             stream,

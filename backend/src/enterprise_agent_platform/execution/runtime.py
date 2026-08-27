@@ -8,6 +8,7 @@ The actual agent decision loop is delegated to ``pi-agent-core.Agent`` via
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from collections.abc import Sequence
@@ -23,6 +24,11 @@ from pi_agent_core.types import (
     Message,
     Model,
     StreamFn,
+    StreamTextDeltaEvent,
+    StreamThinkingDeltaEvent,
+    ToolExecutionEndEvent,
+    ToolExecutionStartEvent,
+    ToolExecutionUpdateEvent,
     ToolResultMessage,
     TurnEndEvent,
     UserMessage,
@@ -114,6 +120,56 @@ class RuntimeIdentityProvider(Protocol):
     async def provide(self) -> tuple[str, str]:
         """Return ``(bootstrap_token, pod_uid)``."""
         ...
+
+
+class AgentEventSink(Protocol):
+    """Live-streaming bridge (SDD §11.4/§11.5) implemented per transport.
+
+    Two independent links from the pi-agent-core event stream to the frontend:
+
+    - ``emit_event``: durable platform event. The transport appends a
+      ``tool.execution.started`` / ``tool.execution.ended`` /
+      ``agent.turn.completed`` EnterpriseEventEnvelope via ``append_event``
+      (PG -> Outbox -> SSE ``event`` frame) so a reconnect can replay it.
+    - ``stream_chunk``: ephemeral in-memory delta. ToolExecutionUpdate and
+      StreamThinking/StreamText deltas are forwarded as ``stream-chunk`` SSE
+      frames only; they are never persisted and are dropped on disconnect.
+
+    Both are fire-safe: the Agent loop must never block on either, so the
+    runtime schedules them as isolated tasks (``_spawn_emit``/``_spawn_chunk``).
+    """
+
+    async def emit_event(
+        self, *, event_type: str, payload: dict[str, object]
+    ) -> None: ...
+
+    async def stream_chunk(self, *, chunk: dict[str, object]) -> None: ...
+
+
+# Bounded persistence fields (SDD §11.4): aggregated thinking/message text and
+# tool args must stay bounded so a durable event never bloats the event log.
+MAX_PERSISTED_TEXT_CHARS = 16_384
+MAX_ARGS_KEYS = 20
+MAX_ARGS_STRING_CHARS = 2_000
+
+# Conservative key-name redaction applied at the source: full values of
+# credential-like keys never leave the Runtime (mirrors the platform posture
+# that browsers must not receive raw secrets).
+_REDACT_KEYS = frozenset(
+    {
+        "api_key",
+        "apikey",
+        "authorization",
+        "cookie",
+        "password",
+        "secret",
+        "token",
+        "access_token",
+        "refresh_token",
+        "credential",
+        "ssh_key",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +282,71 @@ def _coerce_message(raw: dict[str, object]) -> dict[str, object]:
 
 
 # ---------------------------------------------------------------------------
+# Live-streaming bridge helpers (SDD §11.4)
+# ---------------------------------------------------------------------------
+
+
+def _clip_text(value: str) -> str:
+    """Bound persisted aggregated text (thinking / message) to a sane size."""
+    if len(value) <= MAX_PERSISTED_TEXT_CHARS:
+        return value
+    return value[:MAX_PERSISTED_TEXT_CHARS] + "…[truncated]"
+
+
+def _stringify_bounded(value: object) -> str | None:
+    """Bound any object to a short JSON string for a stream-chunk frame."""
+    if value is None:
+        return None
+    raw: str
+    if isinstance(value, str):
+        raw = value
+    else:
+        try:
+            raw = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+        except (TypeError, ValueError):
+            raw = str(value)
+    return _clip_text(raw)
+
+
+def _redact_args(value: object) -> object:
+    """Redact credential-like keys at the source before any key leaves the Runtime."""
+    if not isinstance(value, dict):
+        return value
+    out: dict[str, object] = {}
+    for key, item in value.items():
+        lowered = str(key).lower()
+        if any(needle in lowered for needle in _REDACT_KEYS):
+            out[key] = "[REDACTED]"
+        elif isinstance(item, dict):
+            out[key] = _redact_args(item)
+        elif isinstance(item, list):
+            out[key] = [_redact_args(entry) for entry in item]
+        else:
+            out[key] = item
+    return out
+
+
+def _capsize_args(value: object) -> dict[str, object] | None:
+    """Return a bounded, redacted argument/result snapshot.
+
+    String values are clipped, the key count is capped, and credential-like
+    keys are redacted. Returns ``None`` when there is no payload.
+    """
+    cleaned = _redact_args(value)
+    if not isinstance(cleaned, dict):
+        return None
+    out: dict[str, object] = {}
+    for key, item in list(cleaned.items())[:MAX_ARGS_KEYS]:
+        if isinstance(item, str):
+            out[key] = _clip_text(item[:MAX_ARGS_STRING_CHARS])
+        elif isinstance(item, (dict, list)):
+            out[key] = _stringify_bounded(item)
+        else:
+            out[key] = item
+    return out
+
+
+# ---------------------------------------------------------------------------
 # AgentRuntime — lifecycle shell
 # ---------------------------------------------------------------------------
 
@@ -264,6 +385,15 @@ class AgentRuntime:
         self._remote_tools: list[AgentTool] = []
         self._stream_fn: StreamFn | None = None
         self._get_api_key: Any = None
+        # Live-streaming bridge sink (SDD §11.4/§11.5); None disables the
+        # bridge without changing agent behaviour.
+        self._event_sink: AgentEventSink | None = None
+        # Per-run turn aggregation buffers (reset on each TurnEndEvent).
+        self._turn_seq = 0
+        self._turn_thinking: list[str] = []
+        self._turn_text: list[str] = []
+        self._active_tools: dict[str, str] = {}
+        self._turn_tool_calls: list[dict[str, object]] = []
         # Latest refreshed RuntimeContext (lease_version kept fresh across
         # heartbeats so turn-level checkpoint CAS does not go stale).
         self._context: RuntimeContext | None = None
@@ -282,6 +412,10 @@ class AgentRuntime:
 
     def set_get_api_key(self, get_api_key: Any) -> None:
         self._get_api_key = get_api_key
+
+    def set_event_sink(self, sink: AgentEventSink | None) -> None:
+        """Attach the live-streaming bridge sink (or disable it with None)."""
+        self._event_sink = sink
 
     async def run(
         self,
@@ -579,16 +713,130 @@ class AgentRuntime:
         context: RuntimeContext,
         agent: Agent,
     ) -> None:
-        """Event callback: heartbeat + turn-level checkpoint on TurnEndEvent.
+        """Event callback: lifecycle + live-streaming bridge (SDD §11.4/11.5).
 
-        ``TurnEndEvent`` is emitted by the pi-agent-core loop only after every
-        tool call of the turn has completed (never mid-execution), so the
-        snapshot taken here is a safe checkpoint boundary (proposal 坑1).
-        ``model_dump()`` runs synchronously inside the callback while the loop
-        is suspended at the yield point, so it cannot race the next turn's
-        state mutation.
+        Two independent links are driven from the pi-agent-core event stream:
+
+        1. Durable link (``emit_event`` -> append_event / PG / Outbox / SSE):
+           - ToolExecutionStartEvent -> ``tool.execution.started``
+           - ToolExecutionEndEvent   -> ``tool.execution.ended``
+           - TurnEndEvent            -> ``agent.turn.completed`` carrying the
+             full aggregated thinking + assistant text + tool summary for the
+             turn (single replay-safe record instead of thousands of deltas).
+
+        2. Ephemeral link (``stream_chunk`` -> in-memory relay -> SSE
+           ``stream-chunk`` frames, never persisted, dropped on disconnect):
+           - ToolExecutionUpdateEvent -> ``tool.execution.updated``
+           - StreamThinkingDeltaEvent -> ``thinking.delta``
+           - StreamTextDeltaEvent     -> ``text.delta``
+
+        ``TurnEndEvent`` remains the atomic checkpoint boundary: it is emitted
+        only after every tool call of the turn has completed, so the snapshot
+        taken here is safe and the model_dump() runs synchronously at the
+        yield point (cannot race the next turn). Heartbeat + turn checkpoint
+        tasks keep the existing lifecycle behaviour.
         """
+        if isinstance(event, ToolExecutionStartEvent):
+            tool_name = str(event.tool_name)
+            call_id = str(event.tool_call_id)
+            args = _capsize_args(getattr(event, "args", None))
+            self._active_tools[call_id] = tool_name
+            self._turn_tool_calls.append(
+                {"call_id": call_id, "tool_name": tool_name, "status": "succeeded"}
+            )
+            self._spawn_emit(
+                "tool.execution.started",
+                {
+                    "kind": "tool.execution.started",
+                    "call_id": call_id,
+                    "tool_name": tool_name,
+                    "args": args,
+                },
+            )
+            self._spawn_chunk(
+                {
+                    "kind": "tool.execution.started",
+                    "call_id": call_id,
+                    "tool_name": tool_name,
+                    "args": args,
+                }
+            )
+            return
+
+        if isinstance(event, ToolExecutionUpdateEvent):
+            partial = getattr(event, "partial_result", None)
+            self._spawn_chunk(
+                {
+                    "kind": "tool.execution.updated",
+                    "call_id": str(event.tool_call_id),
+                    "tool_name": str(event.tool_name),
+                    "partial": _stringify_bounded(partial),
+                }
+            )
+            return
+
+        if isinstance(event, ToolExecutionEndEvent):
+            call_id = str(event.tool_call_id)
+            tool_name = str(event.tool_name)
+            is_error = bool(getattr(event, "is_error", False))
+            status = "failed" if is_error else "succeeded"
+            for record in self._turn_tool_calls:
+                if record.get("call_id") == call_id:
+                    record["status"] = status
+                    record["is_error"] = is_error
+            result = _capsize_args(getattr(event, "result", None))
+            self._spawn_emit(
+                "tool.execution.ended",
+                {
+                    "kind": "tool.execution.ended",
+                    "call_id": call_id,
+                    "tool_name": tool_name,
+                    "status": status,
+                    "is_error": is_error,
+                    "result": result,
+                },
+            )
+            self._spawn_chunk(
+                {
+                    "kind": "tool.execution.ended",
+                    "call_id": call_id,
+                    "tool_name": tool_name,
+                    "is_error": is_error,
+                }
+            )
+            return
+
+        if isinstance(event, StreamThinkingDeltaEvent):
+            delta = getattr(event, "delta", "")
+            self._turn_thinking.append(str(delta) if delta is not None else "")
+            self._spawn_chunk({"kind": "thinking.delta", "delta": str(delta)})
+            return
+
+        if isinstance(event, StreamTextDeltaEvent):
+            delta = getattr(event, "delta", "")
+            self._turn_text.append(str(delta) if delta is not None else "")
+            self._spawn_chunk({"kind": "text.delta", "delta": str(delta)})
+            return
+
         if isinstance(event, TurnEndEvent):
+            self._turn_seq += 1
+            thinking = _clip_text("".join(self._turn_thinking))
+            message_text = _clip_text("".join(self._turn_text))
+            tool_calls = tuple(self._turn_tool_calls)
+            self._turn_thinking = []
+            self._turn_text = []
+            self._turn_tool_calls = []
+            self._active_tools = {}
+            self._spawn_emit(
+                "agent.turn.completed",
+                {
+                    "kind": "agent.turn.completed",
+                    "turn_seq": self._turn_seq,
+                    "thinking": thinking,
+                    "message_text": message_text,
+                    "tool_calls": tool_calls,
+                },
+            )
             try:
                 loop = asyncio.get_running_loop()
                 self._pending_tasks.append(
@@ -599,6 +847,47 @@ class AgentRuntime:
                 )
             except RuntimeError:
                 pass
+
+    # ------------------------------------------------------------------
+    # Live-streaming bridge emit helpers (fire-safe, never block the loop)
+    # ------------------------------------------------------------------
+
+    def _spawn_emit(self, event_type: str, payload: dict[str, object]) -> None:
+        sink = self._event_sink
+        if sink is None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(self._safe_emit(sink, event_type, payload))
+
+    def _spawn_chunk(self, chunk: dict[str, object]) -> None:
+        sink = self._event_sink
+        if sink is None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(self._safe_chunk(sink, chunk))
+
+    async def _safe_emit(
+        self, sink: AgentEventSink, event_type: str, payload: dict[str, object]
+    ) -> None:
+        try:
+            await sink.emit_event(event_type=event_type, payload=payload)
+        except (RuntimeError, OSError, ValueError) as exc:
+            # PipeError (RuntimeError) and transport I/O failures are expected
+            # and non-fatal: the agent loop must never be affected by a lost
+            # bridge event.
+            log.warning("live emit_event %s failed (non-fatal): %s", event_type, exc)
+
+    async def _safe_chunk(self, sink: AgentEventSink, chunk: dict[str, object]) -> None:
+        try:
+            await sink.stream_chunk(chunk=chunk)
+        except (RuntimeError, OSError, ValueError) as exc:
+            log.warning("live stream_chunk failed (non-fatal): %s", exc)
 
     async def _drain_pending_tasks(self) -> None:
         """Await outstanding heartbeat / turn-checkpoint tasks before the final commit."""

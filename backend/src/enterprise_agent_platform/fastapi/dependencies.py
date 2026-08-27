@@ -31,6 +31,11 @@ from enterprise_agent_platform.platform.config_reader import AppConfig, ConfigRe
 from enterprise_agent_platform.platform.provider_factory import ProviderFactory
 from enterprise_agent_platform.platform.telemetry import DiagnosticTelemetry
 
+from enterprise_agent_platform.platform.run_chunks import (
+    InMemoryRunChunkRelay,
+    RunChunkSource,
+)
+
 from .sse import PollingRunEventNotifier, RunEventNotifier
 
 SAFE_REQUEST_ID = re.compile(r"[A-Za-z0-9.:]{1,128}$")
@@ -79,6 +84,12 @@ class AgentPlatformContainer:
     host_context_verifier: HostContextVerifier
     policy_context_provider: PolicyContextProvider
     notifier: RunEventNotifier = field(default_factory=PollingRunEventNotifier)
+    # Ephemeral stream-chunk source (SDD §11.5). In-memory relay by default;
+    # a host that runs a worker in the same process must pass the SAME relay
+    # instance to the worker so chunks can reach the SSE endpoint.
+    chunk_streamer: RunChunkSource | None = field(
+        default_factory=InMemoryRunChunkRelay
+    )
     host_port_timeout_seconds: float = 2.0
     sse_heartbeat_seconds: float = 15.0
     sse_max_lifetime_seconds: float = 300.0

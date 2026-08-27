@@ -17,6 +17,7 @@ import type {
   RunEventPage,
   RunState,
   RunViewSnapshot,
+  StreamChunk,
   SurfaceRevision,
 } from "@platform/agent-ui-protocol";
 import { AgentPlatformProtocolError } from "./errors.js";
@@ -24,6 +25,8 @@ import { deepFreeze } from "./util.js";
 
 export const MAX_PENDING_EVENTS = 64;
 export const MAX_RECENT_EVENTS = 200;
+/** Bounded live-view chunk ring (SDD §11.5): never persisted, evicted oldest. */
+export const MAX_LIVE_CHUNKS = 500;
 
 export interface RunProjectionSnapshot {
   readonly runId: string;
@@ -42,6 +45,13 @@ export interface RunProjectionSnapshot {
   readonly pendingCount: number;
   /** Bounded, most-recent-first-safe log of applied events (ascending seq). */
   readonly recentEvents: readonly EnterpriseEventEnvelope[];
+  /**
+   * Ephemeral live stream-chunks (SDD §11.5). UI-only buffer for the
+   * typewriter/tool-activity view; NOT part of recentEvents and NEVER
+   * replayed after a reconnect — durable turns come from
+   * ``agent.turn.completed`` events in ``recentEvents`` instead.
+   */
+  readonly streamChunks: readonly StreamChunk[];
   /** Fetched surface documents keyed by surface_id. */
   readonly surfaces: ReadonlyMap<string, SurfaceRevision>;
   /** surface_id -> latest committed revision (from events and snapshots). */
@@ -58,6 +68,7 @@ export class RunProjectionStore {
   private resyncRequired = false;
   private readonly pending = new Map<number, EnterpriseEventEnvelope>();
   private recentEvents: EnterpriseEventEnvelope[] = [];
+  private streamChunks: StreamChunk[] = [];
   private readonly surfaces = new Map<string, SurfaceRevision>();
   private readonly surfaceCommits = new Map<string, number>();
   private snapshot: RunProjectionSnapshot;
@@ -95,6 +106,10 @@ export class RunProjectionStore {
     this.retentionFloor = 0;
     this.resyncRequired = false;
     this.pending.clear();
+    // Resync rebuilds from durable state; the live chunk ring has no durable
+    // equivalent and is cleared (the frontend re-renders turns from the
+    // persisted agent.turn.completed events in recentEvents).
+    this.streamChunks = [];
     for (const surface of snapshot.view.surfaces) {
       this.surfaceCommits.set(surface.surface_id, surface.revision);
     }
@@ -158,6 +173,24 @@ export class RunProjectionStore {
     }
   }
 
+  /**
+   * Cache an ephemeral stream-chunk for the live view (SDD §11.5).
+   * Bounded ring: oldest chunks are evicted as new ones arrive, and the
+   * buffer is cleared on resync. Never persisted, never replayed.
+   */
+  ingestChunk(chunk: StreamChunk): void {
+    if (chunk.run_id !== this.runId) {
+      throw new AgentPlatformProtocolError(
+        "stream chunk does not belong to this run projection",
+      );
+    }
+    this.streamChunks.push(chunk);
+    if (this.streamChunks.length > MAX_LIVE_CHUNKS) {
+      this.streamChunks = this.streamChunks.slice(-MAX_LIVE_CHUNKS);
+    }
+    this.commit();
+  }
+
   /** Cache a fetched surface document; bumps the commit to its revision. */
   setSurfaceRevision(revision: SurfaceRevision): void {
     if (revision.run_id !== this.runId) {
@@ -213,6 +246,7 @@ export class RunProjectionStore {
       resyncRequired: this.resyncRequired,
       pendingCount: this.pending.size,
       recentEvents: [...this.recentEvents],
+      streamChunks: [...this.streamChunks],
       surfaces: new Map(this.surfaces),
       surfaceCommits: new Map(this.surfaceCommits),
     });

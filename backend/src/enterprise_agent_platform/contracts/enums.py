@@ -153,6 +153,15 @@ class EventType(StringEnum):
     UI_SURFACE_COMMITTED = "ui.surface.committed"
     ARTIFACT_VERSION = "artifact.version"
     ACTION_PROPOSAL = "action.proposal"
+    # Live-analysis events bridged from pi-agent-core (SDD §11.4).
+    # tool.execution.started/ended and agent.turn.completed are durable
+    # platform events (enterprise-event/v1, persisted via append_event);
+    # the per-token StreamThinking/StreamText deltas are NOT platform events
+    # — they flow as ephemeral stream-chunk frames (in-memory, dropped on
+    # disconnect) described in SDD §11.5.
+    TOOL_EXECUTION_STARTED = "tool.execution.started"
+    TOOL_EXECUTION_ENDED = "tool.execution.ended"
+    AGENT_TURN_COMPLETED = "agent.turn.completed"
 
 
 class EntityType(StringEnum):

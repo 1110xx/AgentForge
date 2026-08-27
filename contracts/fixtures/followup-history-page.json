@@ -1,0 +1,27 @@
+{
+  "schema_version": "followup-history-page/v1",
+  "run_id": "run_428d2599597342ae9c9efa9dc93ca89c",
+  "total_count": 2,
+  "records": [
+    {
+      "schema_version": "followup-record/v1",
+      "run_id": "run_428d2599597342ae9c9efa9dc93ca89c",
+      "followup_seq": 0,
+      "question": "你好，你刚刚做了什么任务",
+      "answer": "[Analyze failure patterns] 追问#1：分析已完成……",
+      "answered_at": "2026-08-25T15:14:05.443756Z",
+      "client_followup_id": "followup-abc",
+      "status": "ANSWERED"
+    },
+    {
+      "schema_version": "followup-record/v1",
+      "run_id": "run_428d2599597342ae9c9efa9dc93ca89c",
+      "followup_seq": 1,
+      "question": "请给出修复建议",
+      "answer": null,
+      "answered_at": null,
+      "client_followup_id": "followup-def",
+      "status": "PENDING"
+    }
+  ]
+}

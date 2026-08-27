@@ -7,8 +7,17 @@ import type {
   EnterpriseEventEnvelope,
   RunEventPage,
   RunViewSnapshot,
+  StreamChunk,
 } from "@platform/agent-ui-protocol";
-import { RunProjectionStore } from "../src/projection.js";
+import { MAX_LIVE_CHUNKS, RunProjectionStore } from "../src/projection.js";
+
+function chunk(
+  kind: StreamChunk["kind"],
+  overrides: Partial<StreamChunk> = {},
+): StreamChunk {
+  return { run_id: "run_demo", kind, ...overrides };
+}
+
 
 let seqCounter = 0;
 
@@ -237,5 +246,79 @@ describe("RunProjectionStore snapshots and surfaces", () => {
     const snap = store.getSnapshot();
     expect(Object.isFrozen(snap)).toBe(true);
     expect(Object.isFrozen(snap.recentEvents)).toBe(true);
+  });
+});
+
+describe("RunProjectionStore live stream-chunks (SDD §11.5)", () => {
+  it("buffers ephemeral chunks without touching the event watermark or recentEvents", () => {
+    const store = new RunProjectionStore("run_demo");
+    store.ingestChunk(chunk("thinking.delta", { delta: "a" }));
+    store.ingestChunk(chunk("text.delta", { delta: "b" }));
+    const snap = store.getSnapshot();
+    expect(snap.streamChunks.map((item) => item.kind)).toEqual([
+      "thinking.delta",
+      "text.delta",
+    ]);
+    expect(snap.appliedWatermark).toBe(0);
+    expect(snap.recentEvents).toHaveLength(0);
+  });
+
+  it("rejects chunks from another run", () => {
+    const store = new RunProjectionStore("run_demo");
+    expect(() =>
+      store.ingestChunk(chunk("text.delta", { run_id: "other_run" })),
+    ).toThrow();
+  });
+
+  it("bounds the live buffer and evicts the oldest chunks", () => {
+    const store = new RunProjectionStore("run_demo");
+    for (let index = 0; index < MAX_LIVE_CHUNKS + 25; index += 1) {
+      store.ingestChunk(chunk("text.delta", { delta: String(index) }));
+    }
+    const snap = store.getSnapshot();
+    expect(snap.streamChunks).toHaveLength(MAX_LIVE_CHUNKS);
+    expect(snap.streamChunks[0]?.delta).toBe("25"); // oldest 25 evicted
+  });
+
+  it("clears the live buffer on snapshot resync", () => {
+    const store = new RunProjectionStore("run_demo");
+    store.ingestChunk(chunk("thinking.delta", { delta: "live" }));
+    expect(store.getSnapshot().streamChunks).toHaveLength(1);
+    store.ingestSnapshot({
+      schema_version: "run-view-snapshot/v1",
+      run_id: "run_demo",
+      status: "RUNNING",
+      watermark: 4,
+      view: {
+        run_id: "run_demo",
+        parent_run_id: null,
+        workflow_type: "synthetic-analysis",
+        intent: "Analyze failure patterns",
+        status: "RUNNING",
+        status_reason: null,
+        version: 2,
+        created_at: "2026-08-07T00:00:00Z",
+        updated_at: "2026-08-07T00:00:03Z",
+        ended_at: null,
+        execution_units: [],
+        attempts: [],
+        current_step: null,
+        approvals: [],
+        artifacts: [],
+        surfaces: [],
+        watermark: 4,
+      },
+    });
+    expect(store.getSnapshot().streamChunks).toHaveLength(0);
+  });
+
+  it("keeps recentEvents durable-only (chunks never enter the replay log)", () => {
+    const store = new RunProjectionStore("run_demo");
+    store.ingestEvent(envelope({ event_seq: 1 }));
+    store.ingestChunk(chunk("text.delta", { delta: "x" }));
+    store.ingestEvent(envelope({ event_seq: 2 }));
+    expect(store.getSnapshot().recentEvents.map((event) => event.event_seq)).toEqual([
+      1, 2,
+    ]);
   });
 });
