@@ -63,14 +63,14 @@ def main() -> int:
             {
                 "record": "agent_platform:http_error_ratio_5m",
                 "expr": (
-                    f'sum(rate({LAT_METRIC}_count{{http.status_class="5xx"}}[5m]))'
+                    f'sum(rate({LAT_METRIC}_count{{http_status_class="5xx"}}[5m]))'
                     f' / clamp_min(sum(rate({LAT_METRIC}_count[5m])), 1.0)'
                 ),
             },
             {
                 "record": "agent_platform:http_error_ratio_6h",
                 "expr": (
-                    f'sum(rate({LAT_METRIC}_count{{http.status_class="5xx"}}[6h]))'
+                    f'sum(rate({LAT_METRIC}_count{{http_status_class="5xx"}}[6h]))'
                     f' / clamp_min(sum(rate({LAT_METRIC}_count[6h])), 1.0)'
                 ),
             },

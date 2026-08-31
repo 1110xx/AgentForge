@@ -38,7 +38,7 @@
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
       "targets": [
-        {"refId": "A", "expr": "sum(rate(agent_platform_http_requests_total{http.status_class=~\"4xx|5xx\"}[5m])) / clamp_min(sum(rate(agent_platform_http_requests_total[5m])), 1.0)", "legendFormat": "error ratio"}
+        {"refId": "A", "expr": "sum(rate(agent_platform_http_requests_total{http_status_class=~\"4xx|5xx\"}[5m])) / clamp_min(sum(rate(agent_platform_http_requests_total[5m])), 1.0)", "legendFormat": "error ratio"}
       ],
       "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}, "textMode": "value_and_name"},
       "fieldConfig": {"defaults": {"unit": "percentunit", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 0.05}]}}, "overrides": []}
@@ -74,7 +74,7 @@
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
       "targets": [
-        {"refId": "A", "expr": "sum by (http.status_class) (rate(agent_platform_http_requests_total[5m]))", "legendFormat": "{{http.status_class}}"}
+        {"refId": "A", "expr": "sum by (http_status_class) (rate(agent_platform_http_requests_total[5m]))", "legendFormat": "{{http_status_class}}"}
       ],
       "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
       "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}}, "overrides": []}

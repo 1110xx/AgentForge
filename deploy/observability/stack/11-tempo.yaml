@@ -34,10 +34,10 @@ data:
           path: /var/tempo/traces
         wal:
           path: /var/tempo/wal
-    query_frontend:
-      search:
-        enabled: true
-        max_result_limit: 100
+    # tempo v2.5 has NO frontend.SearchConfig.enabled/max_result_limit fields —
+    # an unmarshal error crashed the pod until removed (Phase 4.3 gate catch,
+    # 2026-08-27); search is enabled by default since v2.0, so the whole
+    # query_frontend block can go.
 ---
 apiVersion: apps/v1
 kind: StatefulSet

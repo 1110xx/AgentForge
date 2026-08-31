@@ -5,5 +5,11 @@ metadata:
   labels:
     app.kubernetes.io/name: agent-platform-observability
     app.kubernetes.io/part-of: agent-platform
-    pod-security.kubernetes.io/enforce: restricted
-    pod-security.kubernetes.io/audit: restricted
+    # Platform-internal observability plane: the log sidecar (promtail) needs
+    # hostPath + hostPID on every node, which Pod Security `restricted` (and
+    # even `baseline`) forbids — the whole obsv stack was being admission-
+    # rejected at pod-create (rolled-out 0/1, zero pods) until this was relaxed
+    # (Phase 4.3 gate catch, 2026-08-27). Tenant planes (control/sandbox)
+    # stay `restricted`; this infra plane is explicitly `privileged`-admitted.
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged

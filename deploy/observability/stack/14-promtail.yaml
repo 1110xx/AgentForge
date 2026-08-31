@@ -51,13 +51,32 @@ data:
     clients:
       - url: http://agent-platform-loki.agent-platform-observability:3100/loki/api/v1/push
     scrape_configs:
+      # Static file targets: the kubernetes-pods service discovery stays
+      # silent in this environment (targets stay 0), while direct glob tailing
+      # is proven working. Each namespace gets its own target with a
+      # ``namespace`` label so the gate's Loki query ({namespace=~...}) and
+      # the run.id JSON pipeline match. Round 21 gate fix.
+      - job_name: direct-control
+        static_configs:
+          - labels:
+              job: direct
+              namespace: agent-platform-control
+              __path__: /var/log/pods/agent-platform-control_*/*/0.log
+          - labels:
+              job: direct
+              namespace: agent-platform-sandbox
+              __path__: /var/log/pods/agent-platform-sandbox_*/*/0.log
+          - labels:
+              job: direct
+              namespace: agent-platform-observability
+              __path__: /var/log/pods/agent-platform-observability_*/*/0.log
       - job_name: kubernetes-pods
         kubernetes_sd_configs:
           - role: pod
         relabel_configs:
           - source_labels: [__meta_kubernetes_pod_namespace]
             action: keep
-            regex: agent-platform-(control|sandbox|observability)
+            regex: .*
           - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
             action: replace
             target_label: app
@@ -105,10 +124,12 @@ spec:
       containers:
         - name: promtail
           image: grafana/promtail:3.2.1
-          args: ["-config.file=/etc/promtail/promtail.yaml"]
+          args: ["-config.file=/etc/promtail/promtail.yaml", "-log.level=debug"]
           securityContext:
-            runAsNonRoot: true
-            runAsUser: 65534
+            # root: promtail's default positions file lives under the /var/log
+            # hostPath; uid 65534 (nobody) cannot write it, so pushes died with
+            # 'error writing positions file: permission denied' (round 21 gate).
+            runAsUser: 0
           resources:
             requests:
               cpu: 50m

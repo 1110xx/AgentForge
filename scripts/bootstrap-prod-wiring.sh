@@ -59,9 +59,14 @@ case "${1:-}" in
 esac
 
 # helm needs the proxy for charts.external-secrets.io / charts.jetstack.io on
-# this machine; harmless elsewhere.
-export HTTPS_PROXY="${HTTPS_PROXY:-http://127.0.0.1:7890}"
-export HTTP_PROXY="${HTTP_PROXY:-http://127.0.0.1:7890}"
+# this machine; harmless elsewhere. Proxy is OPTIONAL: probe it and fall back
+# to direct (github direct is restored; a dead proxy blocks chart pulls).
+if curl -s -m 3 -o /dev/null http://127.0.0.1:7890 >/dev/null 2>&1; then
+  export HTTPS_PROXY="${HTTPS_PROXY:-http://127.0.0.1:7890}"
+  export HTTP_PROXY="${HTTP_PROXY:-http://127.0.0.1:7890}"
+else
+  unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy ALL_PROXY all_proxy 2>/dev/null || true
+fi
 
 helm repo add external-secrets https://charts.external-secrets.io >/dev/null 2>&1 || true
 helm repo add jetstack https://charts.jetstack.io >/dev/null 2>&1 || true

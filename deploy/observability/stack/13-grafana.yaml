@@ -114,9 +114,18 @@ spec:
             - name: storage
               mountPath: /var/lib/grafana
       volumes:
+        # Grafana only scans provisioning/{datasources,dashboards}/ subdirs —
+        # mounting keys at the provisioning root (round 18/20) silently
+        # provisioned nothing (datasources=0, dashboards=0). Items remap the
+        # two keys into the subdirs Grafana actually reads.
         - name: provisioning
           configMap:
             name: agent-platform-grafana-provisioning
+            items:
+              - key: datasources.yaml
+                path: datasources/datasources.yaml
+              - key: dashboards.yaml
+                path: dashboards/dashboards.yaml
         - name: dashboards
           configMap:
             name: agent-platform-grafana-dashboards

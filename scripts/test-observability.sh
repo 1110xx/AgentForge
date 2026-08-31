@@ -256,18 +256,34 @@ done
 }
 echo "run SUCCEEDED"
 
-# Prometheus: 指标已通过 OTLP 入栈（业务四组证据）
-metric_ok="$(curl -sf --noproxy '*' \
-  'http://127.0.0.1:19091/api/v1/query?query=agent_platform_run_lifecycle_total' | python -c \
-  "import json,sys; d=json.load(sys.stdin); print(sum(float(r['value'][1]) for r in d['data']['result']))")"
-[[ "$(echo "$metric_ok > 0" | bc)" -eq 1 ]] || {
+# Prometheus: 指标已通过 OTLP 入栈（业务四组证据）。OTLP → collector
+# prometheus exporter → prometheus scrape（默认 15s 窗口），终态指标可能
+# 落后 run 完成一瞬间，故与 Tempo/Loki 断言一致采用有限重试。
+metric_hit=0
+model_hit=0
+for _ in $(seq 1 20); do
+  metric_ok="$(curl -sf --noproxy '*' \
+    'http://127.0.0.1:19091/api/v1/query?query=agent_platform_run_lifecycle_total' | python -c \
+    "import json,sys
+try:
+    d=json.load(sys.stdin); print(sum(float(r['value'][1]) for r in d['data']['result']))
+except Exception: print(0)" 2>/dev/null || echo 0)"
+  model_ok="$(curl -sf --noproxy '*' \
+    'http://127.0.0.1:19091/api/v1/query?query=agent_platform_model_calls_total' | python -c \
+    "import json,sys
+try:
+    d=json.load(sys.stdin); print(sum(float(r['value'][1]) for r in d['data']['result']))
+except Exception: print(0)" 2>/dev/null || echo 0)"
+  { python -c "import sys; raise SystemExit(0 if float(sys.argv[1]) > 0 else 1)" "$metric_ok" && \
+    python -c "import sys; raise SystemExit(0 if float(sys.argv[1]) > 0 else 1)" "$model_ok"; } \
+    && { metric_hit=1; model_hit=1; break; }
+  sleep 3
+done
+[ "$metric_hit" -eq 1 ] || {
   echo "agent_platform_run_lifecycle_total absent in Prometheus (OTLP chain broken)" >&2
   exit 78
 }
-model_ok="$(curl -sf --noproxy '*' \
-  'http://127.0.0.1:19091/api/v1/query?query=agent_platform_model_calls_total' | python -c \
-  "import json,sys; d=json.load(sys.stdin); print(sum(float(r['value'][1]) for r in d['data']['result']))")"
-[[ "$(echo "$model_ok > 0" | bc)" -eq 1 ]] || {
+[ "$model_hit" -eq 1 ] || {
   echo "agent_platform_model_calls_total absent (runner model-call OTLP missing)" >&2
   exit 78
 }
@@ -279,8 +295,12 @@ start_s="$((now_s - 600))"
 span_found=0
 span_count=0
 for _ in $(seq 1 45); do
-  response="$(curl -sf --noproxy '*' \
-    "http://127.0.0.1:19200/api/search?start=$start_s&end=$now_s&limit=20&q={}%20%26%26%20attributes%5B%22agent.platform.run.id%22%5D%3D%22$run_id%22" 2>/dev/null || true)"
+  response="$(curl -sf --noproxy '*' --get \
+    "http://127.0.0.1:19200/api/search" \
+    --data-urlencode "start=$start_s" \
+    --data-urlencode "end=$now_s" \
+    --data-urlencode "limit=20" \
+    --data-urlencode "q={ span.agent.platform.run.id = \"$run_id\" }" 2>/dev/null || true)"
   span_count="$(echo "$response" | python -c \
     "import json,sys
 try:

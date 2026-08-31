@@ -60,14 +60,40 @@ def create_store() -> PlatformStore:
 
 
 def create_container() -> AgentPlatformContainer:
-    """Fresh API container: durable store + reference integrations + sessions."""
+    """Fresh API container: durable store + reference integrations + sessions.
+
+    Telemetry is wired from the environment (OTLP export to the observability
+    collector when ``AGENT_PLATFORM_OTLP_ENDPOINT`` is set) so the API's RED /
+    run-lifecycle / model-call streams reach the same collector the worker and
+    runner pods already use (round 20: the K8s API factory used to omit
+    telemetry entirely — control-plane metrics silently never left the pod).
+    """
+    from enterprise_agent_platform.platform.telemetry_service import (
+        create_telemetry_from_env,
+        maybe_wrap_sessions,
+    )
+
+    telemetry = create_telemetry_from_env(
+        service_name="enterprise-agent-platform-api"
+    )
+    # Session provider carries RED model-call counters (open/run_task/
+    # followup/close emit ``agent_platform_model_calls_total``); the K8s
+    # factory used to hand the bare provider to the HTTP session surface, so
+    # runner model calls never reached the OTLP collector (round 21 gate).
+    run_sessions = maybe_wrap_sessions(
+        InMemoryRunSessionProvider(),
+        telemetry,
+        model_id="deepseek-chat",  # must be a registered label value (see _METRIC_LABEL_REGISTRIES)
+    )
+
     return create_in_memory_container(
         auth_context_provider=ReferenceLocalAuth(),
         resource_resolver=ReferenceSyntheticResources(),
         host_context_verifier=ReferenceHostContextVerifier(),
         policy_context_provider=ReferenceAllowAllPolicy(),
         store=create_store(),
-        run_sessions=InMemoryRunSessionProvider(),
+        run_sessions=run_sessions,
+        telemetry=telemetry,
     )
 
 

@@ -20,6 +20,7 @@ from enterprise_agent_platform.integration.host import (
     VerifiedHostContext,
 )
 from enterprise_agent_platform.persistence import InMemoryPlatformStore, PlatformStore
+from enterprise_agent_platform.platform.telemetry import DiagnosticTelemetry
 from enterprise_agent_platform.reference.provider import ReferenceWorkflowHarness
 from enterprise_agent_platform.security.capabilities import (
     CapabilityIssuer,
@@ -42,9 +43,10 @@ def create_in_memory_container(
     policy_context_provider: PolicyContextProvider,
     store: PlatformStore | None = None,
     run_sessions: RunSessionProvider | None = None,
+    telemetry: DiagnosticTelemetry | None = None,
 ) -> AgentPlatformContainer:
     store = store or InMemoryPlatformStore()
-    control = ControlPlaneService(store)
+    control = ControlPlaneService(store, telemetry=telemetry)
     followups = FollowupService(store, control=control, sessions=run_sessions)
     return AgentPlatformContainer(
         store=store,
@@ -55,6 +57,7 @@ def create_in_memory_container(
         policy_context_provider=policy_context_provider,
         run_sessions=run_sessions,
         followups=followups,
+        telemetry=telemetry,
     )
 
 
