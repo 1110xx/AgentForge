@@ -42,6 +42,12 @@
    （CI 重建 digest ≠ 本机旧构建：基础镜像 tag 漂移所致 → 管道自动重定标，属设计行为；
    bot 用 GITHUB_TOKEN 提交不会递归触发 CI，无乒乓。）
 
+> **已知行为（非缺陷）**：当前 CI 构建在全新 runner 上**不可位复现**（COPY 层 mtime、依赖
+> 下载等随时间戳变化）→ **每次 main push 会带来一次 bake commit**（如 487a200 → `10d70ac`），
+> 但 bot 提交不递归触发 CI，链必然收敛；digest 随 commit 钉死 = 内容寻址仍正确。
+> 后续可选优化：引入 `SOURCE_DATE_EPOCH`/buildx `--source-date-epoch` 使构建可复现、
+> bake 只在源码真变化时发生——属管道优化，不阻塞上线。
+
 ## 3. kind 门为何用本地 registry 身份（探针实证）
 
 探针：`ghcr.io/…/control-plane@sha256:6a32…`（imagePullPolicy IfNotPresent）在 kind 节点 →
