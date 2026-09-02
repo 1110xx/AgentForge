@@ -31,7 +31,6 @@ from enterprise_agent_platform.persistence.protocol import PlatformStore
 from enterprise_agent_platform.reference.local_stack import (
     ReferenceAllowAllPolicy,
     ReferenceHostContextVerifier,
-    ReferenceLocalAuth,
     ReferenceSyntheticResources,
 )
 from enterprise_agent_platform.reference.session import InMemoryRunSessionProvider
@@ -72,6 +71,7 @@ def create_container() -> AgentPlatformContainer:
         create_telemetry_from_env,
         maybe_wrap_sessions,
     )
+    from enterprise_agent_platform.security.oidc import create_auth_provider_from_env
 
     telemetry = create_telemetry_from_env(
         service_name="enterprise-agent-platform-api"
@@ -86,8 +86,15 @@ def create_container() -> AgentPlatformContainer:
         model_id="deepseek-chat",  # must be a registered label value (see _METRIC_LABEL_REGISTRIES)
     )
 
+    # External /v1 auth (Phase 5 Step 1): ReferenceLocalAuth (static bearer)
+    # stays the default so disposable gates run with zero identity infra;
+    # AGENT_PLATFORM_AUTH_PROVIDER=oidc opts into OIDC (Auth0/Keycloak via
+    # AGENT_PLATFORM_OIDC_* envs, security/oidc.py). The control plane glue
+    # (authenticate_request/require_scope) is provider-agnostic.
+    auth_context_provider = create_auth_provider_from_env()
+
     return create_in_memory_container(
-        auth_context_provider=ReferenceLocalAuth(),
+        auth_context_provider=auth_context_provider,
         resource_resolver=ReferenceSyntheticResources(),
         host_context_verifier=ReferenceHostContextVerifier(),
         policy_context_provider=ReferenceAllowAllPolicy(),

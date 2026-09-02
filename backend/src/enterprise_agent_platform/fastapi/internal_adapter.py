@@ -9,14 +9,21 @@ Token conventions (demo projection; production swaps real capability issuers —
 K8s service-account projection / OIDC, see ``security/capabilities.py``):
 
 * ``projected:{tenant_id}``  — bootstrap caller identity (host projection)
-* ``runtime-token:{attempt_id}`` — child Runtime identity
+* ``rt.v1.*`` HMAC-SHA256 signed Runtime capability (``security/runtime_tokens.py``)
+  — child Runtime identity: signature + iat/exp + subject (attempt_id) binding,
+  key from the SecretStore-injected ``AGENT_PLATFORM_CAPABILITY_KEY`` env
 * ``service-token:{name}``    — cross-service identity (effect-worker / reconciler)
 * ``effect-token:{effect_id}`` — approved-effect execution capability
+
+Prior to Phase 5 the Runtime identity was the deterministic plaintext
+``runtime-token:{attempt_id}`` (knowing an attempt_id yielded the exact bearer,
+no signature, no expiry) — decision record docs/phase-4.5-security-decisions.md
+§2.3, closed in Step 1 of the production-prerequisite plan.
 """
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, ClassVar
 
 from enterprise_agent_platform.contracts.enums import EffectState
@@ -50,13 +57,14 @@ from enterprise_agent_platform.fastapi.internal import (
 )
 from enterprise_agent_platform.persistence.protocol import PlatformError, PlatformStore
 from enterprise_agent_platform.security.capabilities import VerifiedRuntimeCapability
+from enterprise_agent_platform.security.runtime_tokens import (
+    issue_runtime_token,
+    resolve_capability_key,
+    verify_runtime_token,
+)
 from enterprise_agent_platform.tools.durable_effects import ReconciledDurableEffect
 
 _RUNTIME_TTL_SECONDS = 300
-
-
-def _runtime_token(attempt_id: str) -> str:
-    return f"runtime-token:{attempt_id}"
 
 
 def _service_token(name: str) -> str:
@@ -81,9 +89,14 @@ class _BootstrapAdapter(BootstrapPort):
         self,
         store: PlatformStore,
         control: ControlPlaneService | None = None,
+        *,
+        capability_key: str | None = None,
     ) -> None:
         self._store = store
         self._control = control
+        self._capability_key = (
+            capability_key if capability_key is not None else resolve_capability_key()
+        )
 
     async def claim(
         self,
@@ -122,7 +135,11 @@ class _BootstrapAdapter(BootstrapPort):
             lease_version = lease.version
             expires_at = lease.expires_at.isoformat() if lease.expires_at else ""
         return BootstrapResponseModel(
-            runtime_token=_runtime_token(attempt_id),
+            runtime_token=issue_runtime_token(
+                attempt_id,
+                key=self._capability_key,
+                ttl_seconds=_RUNTIME_TTL_SECONDS,
+            ),
             tenant_id=attempt.tenant_id,
             run_id=attempt.run_id,
             execution_unit_id=attempt.execution_unit_id,
@@ -135,10 +152,18 @@ class _BootstrapAdapter(BootstrapPort):
 
 
 class _RuntimeVerifierAdapter(RuntimeVerifier):
-    """Verify a Runtime identity token against durable Attempt facts."""
+    """Verify an HMAC-signed Runtime capability against durable Attempt facts."""
 
-    def __init__(self, store: PlatformStore) -> None:
+    def __init__(
+        self,
+        store: PlatformStore,
+        *,
+        capability_key: str | None = None,
+    ) -> None:
         self._store = store
+        self._capability_key = (
+            capability_key if capability_key is not None else resolve_capability_key()
+        )
 
     async def verify_runtime(
         self,
@@ -150,12 +175,16 @@ class _RuntimeVerifierAdapter(RuntimeVerifier):
         generation: int,
         required_scopes: tuple[str, ...],
     ) -> VerifiedRuntimeCapability:
-        if bearer != _runtime_token(attempt_id):
-            raise PlatformError("AUTH_FAILED", "runtime token mismatch")
+        # Signature + iat/exp + subject (attempt_id) binding first — a forged
+        # or expired capability is rejected before any durable-store read.
+        claims = verify_runtime_token(
+            bearer,
+            attempt_id=attempt_id,
+            key=self._capability_key,
+        )
         attempt = await self._store.get_attempt(tenant_id, attempt_id)
         if attempt.run_id != run_id or attempt.generation != generation:
             raise PlatformError("AUTH_FAILED", "runtime subject facts mismatch")
-        now = datetime.now(UTC)
         return VerifiedRuntimeCapability(
             token_id=f"rt:{attempt_id}",
             issuer="control-plane",
@@ -166,8 +195,8 @@ class _RuntimeVerifierAdapter(RuntimeVerifier):
             attempt_id=attempt_id,
             generation=generation,
             scopes=required_scopes,
-            issued_at=now,
-            expires_at=now + timedelta(seconds=_RUNTIME_TTL_SECONDS),
+            issued_at=claims.issued_at,
+            expires_at=claims.expires_at,
         )
 
 
@@ -206,12 +235,17 @@ class _RuntimeOpsAdapter(RuntimeOperationsPort):
         store: PlatformStore,
         orchestrator: SubprocessOrchestrator | None = None,
         *,
+        capability_key: str | None = None,
         run_sessions=None,
         resource_resolver=None,
     ) -> None:
+        self._capability_key = (
+            capability_key if capability_key is not None else resolve_capability_key()
+        )
         self._orchestrator = orchestrator or SubprocessOrchestrator(
             store=store,
             control=ControlPlaneService(store),
+            capability_key=self._capability_key,
             run_sessions=run_sessions,
             resource_resolver=resource_resolver,
         )
@@ -254,6 +288,15 @@ class _RuntimeOpsAdapter(RuntimeOperationsPort):
             trace_id=f"trace:{capability.run_id}",
         )
         kwargs: dict[str, object] = {}
+        # The context ``runtime_token`` is what heartbeat responses echo back to
+        # the Pod so its next ops carry a fresh bearer — re-issue a signed
+        # capability on every heartbeat/commit so the expiry window rolls
+        # forward instead of going stale mid-run.
+        _rolling_runtime_token = issue_runtime_token(
+            capability.attempt_id,
+            key=self._capability_key,
+            ttl_seconds=_RUNTIME_TTL_SECONDS,
+        )
         if op in (OP_BOOTSTRAP, OP_RESTORE):
             kwargs["attempt_id"] = capability.attempt_id
             kwargs["generation"] = capability.generation
@@ -264,7 +307,7 @@ class _RuntimeOpsAdapter(RuntimeOperationsPort):
                 "attempt_id": capability.attempt_id,
                 "generation": capability.generation,
                 "pod_uid": "",
-                "runtime_token": f"runtime-token:{capability.attempt_id}",
+                "runtime_token": _rolling_runtime_token,
                 "lease_owner": getattr(request, "lease_owner", ""),
                 "lease_version": getattr(request, "lease_version", 1),
             }
@@ -395,6 +438,7 @@ def build_internal_container(
     orchestrator: SubprocessOrchestrator | None = None,
     control: ControlPlaneService | None = None,
     *,
+    capability_key: str | None = None,
     run_sessions=None,
     resource_resolver=None,
 ) -> InternalApiContainer:
@@ -405,19 +449,27 @@ def build_internal_container(
     the remaining ports are derived from the shared store + orchestrator.
     ``run_sessions`` / ``resource_resolver`` are threaded into the op-service
     so HTTP model_call / read_tool proxy the real provider + resolver.
+    ``capability_key`` seeds the HMAC Runtime capability signing; when omitted
+    it resolves from ``AGENT_PLATFORM_CAPABILITY_KEY`` (SecretStore injection,
+    demo fallback documented in security/runtime_tokens.py).
     """
+    resolved_key = capability_key if capability_key is not None else resolve_capability_key()
     return InternalApiContainer(
-        bootstrap=_BootstrapAdapter(store, control or ControlPlaneService(store)),
-        runtime_verifier=_RuntimeVerifierAdapter(store),
+        bootstrap=_BootstrapAdapter(
+            store, control or ControlPlaneService(store), capability_key=resolved_key
+        ),
+        runtime_verifier=_RuntimeVerifierAdapter(store, capability_key=resolved_key),
         runtime_operations=_RuntimeOpsAdapter(
             store,
             orchestrator
             or SubprocessOrchestrator(
                 store=store,
                 control=control or ControlPlaneService(store),
+                capability_key=resolved_key,
                 run_sessions=run_sessions,
                 resource_resolver=resource_resolver,
             ),
+            capability_key=resolved_key,
             run_sessions=run_sessions,
             resource_resolver=resource_resolver,
         ),
@@ -427,4 +479,4 @@ def build_internal_container(
     )
 
 
-__all__ = ["_runtime_token", "build_internal_container"]
+__all__ = ["build_internal_container"]

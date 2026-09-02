@@ -124,7 +124,13 @@ NetworkPolicy 不能防 DNS rebinding、被允许代理自身的 SSRF 或应用�
 
 ## 6. 多租户身份与宿主授权
 
-Public API 的租户和用户来自 AuthContextProvider，不接受客户端自报 tenant header。创建 Run 时：
+Public API 的租户和用户来自 AuthContextProvider，不接受客户端自报 tenant header。`AuthContextProvider` 是**唯一接头**，生产路径为 OIDC（`security/oidc.py`）：
+
+- 启用：`AGENT_PLATFORM_AUTH_PROVIDER=oidc` + `AGENT_PLATFORM_OIDC_ISSUER`（必填）+ `AGENT_PLATFORM_OIDC_AUDIENCE`（必填）；可选 `AGENT_PLATFORM_OIDC_JWKS_URI`（跳过 discovery）、`AGENT_PLATFORM_OIDC_TENANT_CLAIM`（默认 `tenant_id`）、`AGENT_PLATFORM_OIDC_ACTOR_CLAIM`（默认 `sub`）、`AGENT_PLATFORM_OIDC_SCOPE_CLAIM`（默认 `scope,scopes`）；K8s API 工厂 `reference/k8s_container.create_container` 经 `create_auth_provider_from_env` 选择；参考静态 bearer（`ReferenceLocalAuth`）为 dev/kind 默认回退。
+- 校验链：Bearer RS256 JWT → discovery/JWKS（TTL 缓存）→ kid 选钥 → 签名验签 → iss/aud/exp/nbf（±30s leeway）→ claims 映射 tenant_id/actor_id/scopes。**契约**：IdP 的 `scope`（或自定义 scopes claim）直接命名平台 scopes（`runs:create` …）；tenant 与 actor 仅来自 IdP 签发 claims，客户端不可自报。
+- 内部 Runtime capability 已 HMAC 签名化（`security/runtime_tokens.py`，`rt.v1.*`，密钥 `AGENT_PLATFORM_CAPABILITY_KEY`），不再有明文确定性派生 token（详见 docs/phase-4.5-security-decisions.md §2.3）。
+
+创建 Run 时：
 
 - resource_ref 和 host_context_ref 必须是 opaque reference，不能包含 URL、路径、userinfo 或 header；
 - ResourceResolver 返回 canonical ID、owner、classification、version 和 digest，并且 tenant 必须与 RequestContext 一致；

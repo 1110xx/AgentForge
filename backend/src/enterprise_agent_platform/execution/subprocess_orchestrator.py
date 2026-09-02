@@ -41,10 +41,10 @@ from enterprise_agent_platform.contracts.enums import (
     RunState,
 )
 from enterprise_agent_platform.contracts.events import (
+    EVENT_PAYLOAD_CONTRACTS,
     ActionProposalPayload,
     ArtifactVersionPayload,
     EnterpriseEventEnvelope,
-    EVENT_PAYLOAD_CONTRACTS,
 )
 from enterprise_agent_platform.control.checkpoints import CheckpointCommit, commit_checkpoint
 from enterprise_agent_platform.control.context import RequestContext
@@ -60,8 +60,6 @@ from enterprise_agent_platform.domain.records import (
     RunRecord,
 )
 from enterprise_agent_platform.execution.completer import RunCompleter
-from enterprise_agent_platform.platform.run_chunks import RunChunkSink
-from enterprise_agent_platform.platform.telemetry import DiagnosticTelemetry
 from enterprise_agent_platform.execution.pipe_transport import (
     OP_BOOTSTRAP,
     OP_COMMIT_CHECKPOINT,
@@ -71,10 +69,10 @@ from enterprise_agent_platform.execution.pipe_transport import (
     OP_MODEL_CALL,
     OP_PROPOSE_ACTION,
     OP_PUBLISH_ARTIFACT,
-    OP_STREAM_CHUNK,
     OP_READ_TOOL,
     OP_RECORD_FAILURE,
     OP_RESTORE,
+    OP_STREAM_CHUNK,
     error_response,
     ok_response,
 )
@@ -83,6 +81,9 @@ from enterprise_agent_platform.persistence.protocol import (
     PlatformError,
     PlatformStore,
 )
+from enterprise_agent_platform.platform.run_chunks import RunChunkSink
+from enterprise_agent_platform.platform.telemetry import DiagnosticTelemetry
+from enterprise_agent_platform.security.runtime_tokens import issue_runtime_token
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,7 @@ class SubprocessOrchestrator:
         max_runtime_seconds: float = 120.0,
         telemetry: DiagnosticTelemetry | None = None,
         chunk_relay: RunChunkSink | None = None,
+        capability_key: str | None = None,
     ) -> None:
         self._store = store
         self._control = control
@@ -114,6 +116,17 @@ class SubprocessOrchestrator:
         # Live-streaming bridge: ephemeral stream-chunk sink (SDD §11.5).
         # None disables the ephemeral link; durable bridge events still append.
         self._chunk_relay = chunk_relay
+        # HMAC Runtime capability signing key (security/runtime_tokens.py): the
+        # local subprocess form issues the same signed rt.v1.* token the HTTP
+        # form uses so all three forms stay format-consistent. Resolves from
+        # AGENT_PLATFORM_CAPABILITY_KEY with a documented demo fallback.
+        from enterprise_agent_platform.security.runtime_tokens import (
+            resolve_capability_key,
+        )
+
+        self._capability_key = (
+            capability_key if capability_key is not None else resolve_capability_key()
+        )
         # One model session handle per Run (children are destroyed per attempt,
         # but the parent-side session provider is long-lived).
         self._sessions: dict[str, SessionHandle] = {}
@@ -481,7 +494,10 @@ class SubprocessOrchestrator:
             expected_lease_version=1,
         )
         return {
-            "runtime_token": f"runtime-token:{attempt_id}",
+            "runtime_token": issue_runtime_token(
+                attempt_id,
+                key=self._capability_key,
+            ),
             "lease_owner": owner,
             "lease_version": lease.version,
             "expires_at": lease.expires_at.isoformat() if lease.expires_at else "",

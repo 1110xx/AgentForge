@@ -114,7 +114,11 @@ def _bootstrap(client: TestClient, attempt) -> tuple[dict, dict]:
     )
     assert bootstrap.status_code == 200, bootstrap.text
     identity = bootstrap.json()
-    assert identity["runtime_token"] == f"runtime-token:{attempt.attempt_id}"
+    # Runtime capabilities are now HMAC-SHA256 signed (rt.v1.*) with an
+    # iat/exp window — no longer the deterministic plaintext runtime-token:{id}
+    # (docs/phase-4.5-security-decisions.md §2.3 → production-prerequisite Step 1).
+    assert identity["runtime_token"].startswith("rt.v1."), identity
+    assert identity["runtime_token"] != f"runtime-token:{attempt.attempt_id}"
     subject = {
         "tenant_id": REFERENCE_LOCAL_TENANT,
         "run_id": attempt.run_id,
@@ -149,7 +153,8 @@ def test_http_runner_full_lifecycle() -> None:
         )
         assert bootstrap.status_code == 200, bootstrap.text
         identity = bootstrap.json()
-        assert identity["runtime_token"] == f"runtime-token:{attempt.attempt_id}"
+        assert identity["runtime_token"].startswith("rt.v1."), identity
+        assert identity["runtime_token"] != f"runtime-token:{attempt.attempt_id}"
         assert identity["lease_owner"] == f"http-runtime:{attempt.attempt_id}"
         assert identity["lease_version"] >= 2, "bootstrap must activate the Lease"
         assert identity["expires_at"], "active Lease must have an expiry"

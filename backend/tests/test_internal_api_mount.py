@@ -94,7 +94,8 @@ def test_internal_bootstrap_and_runtime_ops() -> None:
         )
         assert bootstrap.status_code == 200, bootstrap.text
         identity = bootstrap.json()
-        assert identity["runtime_token"] == f"runtime-token:{attempt.attempt_id}"
+        assert identity["runtime_token"].startswith("rt.v1."), identity
+        assert identity["runtime_token"] != f"runtime-token:{attempt.attempt_id}"
         assert identity["tenant_id"] == REFERENCE_LOCAL_TENANT
         assert identity["attempt_id"] == attempt.attempt_id
 

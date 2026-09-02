@@ -60,9 +60,17 @@ if kubectl -n "$dependency_namespace" get secret agent-platform-kind-dependencie
     -o jsonpath='{.data.postgres-value}' | base64 -d)"
   minio_value="$(kubectl -n "$dependency_namespace" get secret agent-platform-kind-dependencies \
     -o jsonpath='{.data.minio-value}' | base64 -d)"
+  capability_value="$(kubectl -n "$dependency_namespace" get secret agent-platform-kind-dependencies \
+    -o jsonpath='{.data.AGENT_PLATFORM_CAPABILITY_KEY}' 2>/dev/null | base64 -d || true)"
 else
   postgres_value="$(openssl rand -hex 24)"
   minio_value="$(openssl rand -hex 24)"
+  capability_value=""
+fi
+# HMAC Runtime capability signing key (Phase 5 Step 1, security/runtime_tokens.py):
+# stable across re-runs so existing API pods keep verifying bootstrap grants.
+if [ -z "$capability_value" ]; then
+  capability_value="$(openssl rand -hex 32)"
 fi
 database_url="postgresql+asyncpg://agent_platform:${postgres_value}@postgres.${dependency_namespace}.svc:5432/agent_platform"
 
@@ -72,6 +80,7 @@ database_url="postgresql+asyncpg://agent_platform:${postgres_value}@postgres.${d
 kubectl -n "$dependency_namespace" create secret generic agent-platform-kind-dependencies \
   --from-literal=postgres-value="$postgres_value" \
   --from-literal=minio-value="$minio_value" \
+  --from-literal=AGENT_PLATFORM_CAPABILITY_KEY="$capability_value" \
   --from-literal=AGENT_PLATFORM_DATABASE_URL="$database_url" \
   --from-literal=AGENT_PLATFORM_NATS_URL="nats://nats.${dependency_namespace}.svc:4222" \
   --from-literal=AGENT_PLATFORM_NATS_STREAM=AGENT_PLATFORM \
@@ -86,6 +95,7 @@ kubectl -n "$dependency_namespace" create secret generic agent-platform-kind-dep
 kubectl -n "$control_namespace" create secret generic agent-platform-kind-dependencies \
   --from-literal=postgres-value="$postgres_value" \
   --from-literal=minio-value="$minio_value" \
+  --from-literal=AGENT_PLATFORM_CAPABILITY_KEY="$capability_value" \
   --from-literal=AGENT_PLATFORM_DATABASE_URL="$database_url" \
   --from-literal=AGENT_PLATFORM_NATS_URL="nats://nats.${dependency_namespace}.svc:4222" \
   --from-literal=AGENT_PLATFORM_NATS_STREAM=AGENT_PLATFORM \
@@ -95,7 +105,7 @@ kubectl -n "$control_namespace" create secret generic agent-platform-kind-depend
   --from-literal=AGENT_PLATFORM_S3_ACCESS_KEY_ID=agent_platform \
   --from-literal=AGENT_PLATFORM_S3_SECRET_ACCESS_KEY="$minio_value" \
   --dry-run=client -o yaml | kubectl apply -f -
-unset postgres_value minio_value database_url
+unset postgres_value minio_value capability_value database_url
 
 kubectl apply -f "$root_dir/deploy/kind/dependencies.yaml"
 

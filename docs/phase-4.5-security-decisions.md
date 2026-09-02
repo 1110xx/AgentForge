@@ -50,13 +50,21 @@ Sandbox 运行时 Pod（`job_spec.py` 生成的 Job Pod，Phase 3/4 已实装并
 
 ### 2.3 附带落地（本阶段已执行/决策的轻量加固）
 
-1. **运行时 capability 签名化（已决策，列生产前置清单——不在本阶段落地）**：`runtime-token:{attempt_id}` 明文派生（`fastapi/internal_adapter.py:58-59`，知 attempt_id 即得 token、无签名无时效）。升级路径已明确：**HMAC-SHA256 签名**（服务端密钥经 G2 SecretStore 注入 `AGENT_PLATFORM_CAPABILITY_KEY`）→ 验证侧校验签名 + `expires_at`；`capabilities.py` Verifier 协议保持，业务侧零改动。**本阶段不落地的原因**：该串被三种形态共用（生产 internal adapter 签发/验证、`subprocess_orchestrator.py:484` 本地 run 形态自产、`http_runtime` runner 消费，`tests/test_http_runner_lifecycle.py` 4 处断言锁定），本地形态无 SecretStore 密钥路径——全量 HMAC 化是跨形态适配工程，超出 G4「决策记录」验收范围；作为**上线前置项**（SDD G4 明示 OIDC/强身份不在 MVP 交付范围）在真实多租户/公网场景前完成。
-2. **HA（G4 第三项）**：多副本 + PDB + 优雅关停已实装（chart hpa.yaml/pdb.yaml + worker 优雅退出）；4.4 已实证 HPA 扩容/回缩——HA 视为已覆盖，不再单列演练。
+1. **运行时 capability 签名化 ✅ 已落地（生产前置 Step 1，2026-09-02 执行）**：
+   旧实现 `runtime-token:{attempt_id}` 明文派生（`fastapi/internal_adapter.py:58-59`，知 attempt_id 即得 token、无签名无时效）——已替换为 **HMAC-SHA256 签名短时能力令牌**：
+   - 新模块 `security/runtime_tokens.py`：`rt.v1.<b64url(payload)>.<hexsig>`，payload 绑定 `sub=attempt_id` + `iat/exp`，验证先验签名/时效/subject 再查库；密钥源 `AGENT_PLATFORM_CAPABILITY_KEY` env（SecretStore 注入），无 env 时文档化 demo key 回退（本地/kind 一致）。
+   - **三形态切换**：生产 HTTP 内部 API（`internal_adapter.py` bootstrap 签发 / verifier 验证 / heartbeat 上下文**滚动重签**）；本地子进程形态（`subprocess_orchestrator.py` `_op_bootstrap` 签发）；`http_runtime`/pipe 消费端不透明携带（零改动，注释同步）。
+   - **接线**：Vault 种子（bootstrap-prod-wiring.sh）+ kind secret（bootstrap-kind-dependencies.sh）注入密钥；helm README Secret 契约 四键 → 五键；独立 internal API `_status` 401 映射补 `AUTH_FAILED/AUTH_EXPIRED/AUTH_INVALID`。
+   - **测试**：新 `tests/test_runtime_capabilities.py`（签名/篡改/过期/未来/错误 subject/key/畸形/旧明文拒绝/环境选择）11 条 + `test_http_runner_lifecycle`/`test_internal_api_mount` 断言改为 `rt.v1.*`。
+2. **OIDC `AuthContextProvider` ✅ 已实现（生产前置 Step 1，2026-09-02 执行）**：
+   新模块 `security/oidc.py` `OIDCAuthContextProvider`——OIDC discovery + JWKS 缓存（TTL 300s）、RS256 验签（cryptography，无新依赖）、iss/aud/exp/nbf(leeway) 校验、claims → tenant_id/actor_id/scopes 映射；参考鉴权保留为默认（dev 回退），`AGENT_PLATFORM_AUTH_PROVIDER=oidc` + `AGENT_PLATFORM_OIDC_{ISSUER,AUDIENCE,JWKS_URI,TENANT_CLAIM,ACTOR_CLAIM,SCOPE_CLAIM}` 开启；K8s 容器工厂（`reference/k8s_container.create_container`）经 `create_auth_provider_from_env` 选择。离线全链路测试 `tests/test_oidc_auth.py` 13 条（本地 RSA + httpx.MockTransport 假 IdP：映射/kid/过期/nbf/aud/iss/alg/tamper/缓存/不可用 503/from_env/选择）。真实 Auth0/Keycloak 租户接线留 IdP 接入挂起项（凭证/发现 URL 只差环境变量）。
+3. **HA（G4 第三项）**：多副本 + PDB + 优雅关停已实装（chart hpa.yaml/pdb.yaml + worker 优雅退出）；4.4 已实证 HPA 扩容/回缩——HA 视为已覆盖，不再单列演练。
 
 ## 3. 验收自检
 
 - [x] gVisor：集群实证（0 RuntimeClass）→ 替代方案结论（分层防御栈 1-6，已实装并复核）
 - [x] OIDC：决策记录（A 不采用 / B 采用，含接线点与前置条件）
-- [x] 附带加固：运行时 capability HMAC 签名**决策**（升级路径已定，留生产前置清单）
+- [x] 附带加固：运行时 capability HMAC 签名 **决策**（升级路径已定，留生产前置清单）→ **✅ 生产前置 Step 1 已落地**（rt.v1.* HMAC 三形态 + SecretStore 注入 + 测试，见 §2.3）
 - [ ] L4 真实节点 gVisor 验证（挂起项，移交生产前置，`docs/security.md` §L4）
-- [ ] IdP 接入（挂起项，多租户/公网上线前置）
+- [x] OIDC provider 实现（`security/oidc.py`，离线 JWKS 全链路测试通过）
+- [ ] IdP 真实租户接入（Auth0/Keycloak 接线=填 AGENT_PLATFORM_OIDC_* env，provider 已就绪，多租户/公网上线前置）

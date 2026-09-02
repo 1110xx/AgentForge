@@ -87,6 +87,10 @@ s3_endpoint="http://minio.${dependency_namespace}.svc:9000"
 # here (or in managed KMS) without touching the wiring.
 demo_deepseek_key="sk-prod-demo-$(openssl rand -hex 8)-injection-ok"
 
+
+# HMAC Runtime capability signing key (Phase 5 Step 1, security/runtime_tokens.py):
+# API pods sign/verify rt.v1.* bootstrap grants with this SecretStore-injected key.
+capability_key="$(openssl rand -hex 32)"
 if [ "$eso_only" != "1" ]; then
 echo "== [G3/Ingress] installing ingress-nginx (NodePort 30080/30443) =="
 helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
@@ -187,8 +191,8 @@ kubectl -n "$vault_namespace" exec deploy/agent-platform-vault -- \
       AGENT_PLATFORM_S3_BUCKET=agent-artifacts \\
       AGENT_PLATFORM_S3_ACCESS_KEY_ID=agent_platform \\
       AGENT_PLATFORM_S3_SECRET_ACCESS_KEY='$minio_value' \\
+      AGENT_PLATFORM_CAPABILITY_KEY='$capability_key' \\
       AGENT_PLATFORM_DEEPSEEK_API_KEY='$demo_deepseek_key'"
-
 echo "== [G2/ESO] applying ClusterSecretStore =="
 kubectl apply -f "$root_dir/deploy/prod/eso/cluster-secret-store.yaml"
 kubectl wait --for=condition=Ready \
@@ -253,12 +257,12 @@ rm -f "$root_dir/.tmp-prod-render.yaml"
 # ESO materializes the Secret asynchronously; the reconciler can lag the
 # apply by minutes on a busy kind node — poll up to 8 min. On an idempotent
 # re-run the target Secret is already synced, so skip the wait (key count
-# check: 9 expected).
+# check: 10 expected).
 already_synced=0
 if kubectl -n "$control_namespace" get secret "$platform_secret" >/dev/null 2>&1; then
   key_count="$(kubectl -n "$control_namespace" get secret "$platform_secret" \
     -o jsonpath='{.data}' 2>/dev/null | python -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)"
-  [ "$key_count" -ge 9 ] && already_synced=1
+  [ "$key_count" -ge 10 ] && already_synced=1
 fi
 if [ "$already_synced" != "1" ]; then
   kubectl -n "$control_namespace" wait --for=condition=Ready \

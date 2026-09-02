@@ -585,6 +585,9 @@ def create_internal_router(container: InternalApiContainer) -> APIRouter:
 def _status(error: PlatformError) -> int:
     if error.code in {
         "UNAUTHENTICATED",
+        "AUTH_FAILED",
+        "AUTH_EXPIRED",
+        "AUTH_INVALID",
         "CAPABILITY_EXPIRED",
         "CAPABILITY_NOT_YET_VALID",
         "CAPABILITY_REVOKED",

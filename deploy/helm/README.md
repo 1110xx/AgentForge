@@ -84,9 +84,10 @@ kind 开发渲染 **29 个**；开启 Ingress+PVC 的扩展渲染 **31 个**。
 | `AGENT_PLATFORM_NATS_URL` | 消息总线 | worker（relay/调度） |
 | `AGENT_PLATFORM_NATS_STREAM` | JetStream stream 名 | worker |
 | `AGENT_PLATFORM_NATS_STREAM_REPLICAS` | stream 副本数（生产 3 / kind 单节点 1） | worker |
+| `AGENT_PLATFORM_CAPABILITY_KEY` | HMAC-SHA256 签名密钥：签发/验证 `rt.v1.*` Runtime capability（bootstrap/心跳滚动续期） | api（envFrom 整 secret） |
 
 > 宿主业务侧的 adapter（如 `reference.k8s_container:create_container`）可能还需
-> 模型密钥、OIDC 发现等环境变量；本 Chart 只保证自带四键，其余以 host factory
+> 模型密钥、OIDC 发现等环境变量；本 Chart 只保证自带五键，其余以 host factory
 > 契约为准。`AGENT_PLATFORM_STORE=memory` 是仅本地演示逃生门，生产不允许。
 
 ### 2.5 `integration` — 宿主适配器工厂

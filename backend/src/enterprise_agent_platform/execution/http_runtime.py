@@ -9,7 +9,9 @@ delegates here.
 Capability tokens (demo projection, see fastapi/internal_adapter.py):
 
 * bootstrap — Bearer ``projected:{tenant_id}`` (from ``AGENT_PLATFORM_BOOTSTRAP_TOKEN``)
-* runtime ops — Bearer ``runtime-token:{attempt_id}`` (issued by bootstrap)
+* runtime ops — Bearer ``rt.v1.*`` HMAC-SHA256 signed capability (issued by
+  bootstrap; every heartbeat re-issues a fresh signed token whose expiry rolls
+  forward — see security/runtime_tokens.py)
 
 Lifecycle (mirrors the pipe flow, SDD §6.1):
 
@@ -116,8 +118,10 @@ class HttpRuntimeClient:
     * ``request(op, kwargs)`` — remote tool transport (read_tool /
       publish_artifact / propose_action)
 
-    The runtime subject (tenant/run/unit/attempt/generation) and the
-    ``runtime-token`` are bound from the last ``RuntimeContext``.
+    The runtime subject (tenant/run/unit/attempt/generation) and the signed
+    ``rt.v1.*`` runtime capability are bound from the last ``RuntimeContext``
+    (the client treats the token as opaque — it is granted at bootstrap and
+    rolled forward by heartbeat responses).
     """
 
     def __init__(self, base_url: str, *, timeout: float = _RUNTIME_HTTP_TIMEOUT) -> None:
