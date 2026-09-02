@@ -1,0 +1,52 @@
+# Production Let's Encrypt issuers (ready-to-apply; requires a public domain)
+
+Kind/G3 gates demonstrate the full TLS chain with an in-cluster demo CA
+(issuer `agent-platform-demo-issuer`). For real production certificates:
+
+1. Own a public domain and either
+   - make `agent-platform.<domain>` resolve to a publicly reachable endpoint
+     (HTTP-01), or
+   - provide DNS API credentials (DNS-01; recommended for private clusters).
+2. Fill `email` below (ACME account) and set the solver values.
+3. `kubectl apply -f deploy/prod/tls/letsencrypt-issuer.yaml`
+4. Switch the chart issuer and upgrade:
+
+   ```bash
+   helm upgrade agent-platform deploy/helm \
+     --values deploy/prod/values.yaml \
+     --set ingress.tls.clusterIssuer=letsencrypt-prod
+   ```
+
+Cost note: the domain registration is the only paid item in the Phase 5
+supply-chain plan; nothing here is billed by cloud providers.
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    # TODO: real ACME account email (required by Let's Encrypt).
+    email: admin@example.invalid
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - http01:
+          ingress:
+            class: nginx
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    email: admin@example.invalid
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - http01:
+          ingress:
+            class: nginx

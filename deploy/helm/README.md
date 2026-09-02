@@ -312,19 +312,23 @@ helm upgrade --install agent-platform deploy/helm --namespace agent-platform-con
 ```bash
 # 构建（不推送）
 scripts/build-images.sh
-# 构建 + 推送到 AGENT_PLATFORM_REGISTRY（默认 localhost:5001；带用户名/密码自动 docker login）
+# 构建 + 推送（registry 默认 localhost:5001；生产用 GHCR：AGENT_PLATFORM_REGISTRY=ghcr.io/<owner>/agentforge）
 scripts/build-images.sh --push
 # 构建 + 推送 + 把真 digest 写回 deploy/prod/values.yaml（golden 文件，可提交）
 scripts/build-images.sh --push --update-prod-values
 ```
 
-环境变量：`AGENT_PLATFORM_REGISTRY` / `AGENT_PLATFORM_REGISTRY_USERNAME` /
+环境变量：`AGENT_PLATFORM_REGISTRY`（默认 `localhost:5001`；生产 golden 仓库 =
+`ghcr.io/<owner>/agentforge/enterprise-agent-platform/…`）/ `AGENT_PLATFORM_REGISTRY_USERNAME` /
 `_PASSWORD`（docker login）/ `AGENT_PLATFORM_IMAGE_TAG` / `UV_INDEX_URL`、
 `NPM_REGISTRY_URL`（镜像源覆盖）。产物 `deploy/prod/image-refs.json`（GitOps 工具可读）。
 
-CI（`.github/workflows/ci.yml` `image-gate`）：PR 只构建自测；main 且配置了
-`vars.AGENT_PLATFORM_REGISTRY` 时构建+推送+更新 golden 值并自动提交
-（digest 内容寻址：内容不变 digest 不变 → 不产生空提交，不会乒乓）。
+CI（`.github/workflows/ci.yml` `image-gate`，Phase 5 Step 3）：PR 只构建自测；main 推送用
+runner 原生 `GITHUB_TOKEN`（`permissions: packages: write`）发布三镜像到
+`ghcr.io/<owner>/agentforge/enterprise-agent-platform/…`（无需外部 registry 凭据），再回写
+golden digest 并 GitOps 自动提交（digest 内容寻址：内容不变 digest 不变 → 不产生空提交；
+bot 用 GITHUB_TOKEN 提交不会递归触发 CI）。kind 门以本地 registry 身份部署同一组 digest，
+详见 `docs/phase-5-supply-chain.md`。
 
 ## 9. 无集群静态校验（helm template / lint）
 
