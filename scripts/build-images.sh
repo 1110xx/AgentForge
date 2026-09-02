@@ -87,8 +87,10 @@ for image_name in control-plane runtime frontend; do
     docker push "$image_tag"
   fi
   # RepoDigests materializes after push; before that, inspect the image ID and
-  # synthesize repository@digest from the image's own sha256.
-  digest="$(docker image inspect --format '{{if index .RepoDigests 0}}{{index .RepoDigests 0}}{{else}}{{.Id}}{{end}}' "$image_tag")"
+  # synthesize repository@digest from the image's own sha256. (Empty-slice
+  # guard: {{if index .RepoDigests 0}} would itself raise index-out-of-range
+  # on a fresh daemon, e.g. the first CI build-only run.)
+  digest="$(docker image inspect --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{else}}{{.Id}}{{end}}' "$image_tag")"
   digest="${digest##*@}"
   refs["$image_name"]="$image_ref@$digest"
 done
