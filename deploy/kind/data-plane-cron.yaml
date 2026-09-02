@@ -1,0 +1,227 @@
+# Phase 5 Step 2 — 数据面定时任务（kind，仅官方镜像 + 受管 SQL，不触碰主镜像）
+#
+#   1) platform-base-backup  每天 02:00：postgres 官方镜像 pg_basebackup 全量
+#      (-Ft -z) → minio/mc 归档到 MinIO bucket agent-backups（latest-base/ +
+#      时间戳副本），失败由 Kubernetes Job Failed 事件暴露。
+#   2) backup-freshness-watchdog  每小时：mc find 检查 latest-base 新鲜度
+#      (>26h 无新备份则 exit 1 → Job Failed = 备份失效告警)；同时清理 >14d
+#      的旧 base 对象。
+#   3) ttl-maintenance  每周日 03:00：执行受管 TTL SQL（deploy/data-plane/
+#      ttl_maintenance.sql，由 apply-data-plane.sh 生成同内容 ConfigMap）。
+#
+# 用法：scripts/apply-data-plane.sh（幂等：apply 本文件 + 以 --from-file 刷新 CM）。
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: platform-base-backup
+  namespace: agent-platform-dependencies
+  labels:
+    agent.platform/data-plane: backup
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1200
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            agent.platform/data-plane: backup
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: backup
+              image: postgres:17-alpine
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  rm -rf /share/base
+                  pg_basebackup -h postgres -U agent_platform -Ft -z -D /share/base
+                  chmod 755 /share/base
+                  chmod -R a+rX /share/base
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: agent-platform-kind-dependencies
+                      key: postgres-value
+              securityContext:
+                runAsUser: 70
+                runAsGroup: 70
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: share
+                  mountPath: /share
+          containers:
+            - name: ship
+              image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  export MC_HOST_minio="http://agent_platform:${MINIO_VALUE}@minio:9000"
+                  mc mb --ignore-existing minio/agent-backups
+                  mc mirror --overwrite /share/base minio/agent-backups/latest-base
+                  mc cp /share/base/base.tar.gz "minio/agent-backups/base-$(date +%Y%m%d-%H%M).tar.gz"
+                  echo "backup shipped: $(mc ls minio/agent-backups/latest-base)"
+              env:
+                - name: MINIO_VALUE
+                  valueFrom:
+                    secretKeyRef:
+                      name: agent-platform-kind-dependencies
+                      key: minio-value
+                - name: MC_CONFIG_DIR
+                  value: /tmp/.mc
+              securityContext:
+                runAsUser: 65532
+                runAsGroup: 65532
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: share
+                  mountPath: /share
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: share
+              emptyDir:
+                sizeLimit: 2Gi
+            - name: tmp
+              emptyDir:
+                sizeLimit: 64Mi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-freshness-watchdog
+  namespace: agent-platform-dependencies
+  labels:
+    agent.platform/data-plane: watchdog
+spec:
+  schedule: "15 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            agent.platform/data-plane: watchdog
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: watchdog
+              image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  export MC_HOST_minio="http://agent_platform:${MINIO_VALUE}@minio:9000"
+                  mc mb --ignore-existing minio/agent-backups
+                  # Alarm: fail the Job when no full base backup is newer than 26h.
+                  fresh="$(mc find minio/agent-backups --newer-than 26h --name 'base.tar.gz' 2>/dev/null)"
+                  if [ -z "$fresh" ]; then
+                    echo "BACKUP STALE: no base.tar.gz newer than 26h under agent-backups" >&2
+                    exit 1
+                  fi
+                  # Retention: drop full bases older than 14 days.
+                  mc rm --recursive --force --older-than 14d minio/agent-backups/
+                  echo "backup freshness OK"
+              env:
+                - name: MINIO_VALUE
+                  valueFrom:
+                    secretKeyRef:
+                      name: agent-platform-kind-dependencies
+                      key: minio-value
+                - name: MC_CONFIG_DIR
+                  value: /tmp/.mc
+              securityContext:
+                runAsUser: 65532
+                runAsGroup: 65532
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir:
+                sizeLimit: 64Mi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ttl-maintenance
+  namespace: agent-platform-dependencies
+  labels:
+    agent.platform/data-plane: ttl
+spec:
+  schedule: "0 3 * * 0"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            agent.platform/data-plane: ttl
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: ttl
+              image: postgres:17-alpine
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  psql -h postgres -U agent_platform -d agent_platform \
+                    -v retention_days=30 -v dry_run=0 -f /sql/ttl_maintenance.sql
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: agent-platform-kind-dependencies
+                      key: postgres-value
+                - name: HOME
+                  value: /tmp
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: sql
+                  mountPath: /sql
+                  readOnly: true
+          volumes:
+            - name: sql
+              configMap:
+                name: ttl-maintenance

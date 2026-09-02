@@ -1,0 +1,127 @@
+# Phase 5 Step 2 — 数据面演练资源（kind，仅演练/隔离用途）
+#
+# 不触碰三主镜像与生产依赖清单：本文件只创建 PITR 演练专用的源库与共享卷，
+# 用于在 disposable kind 内实证 WAL 归档 → 全量 basebackup → 时间点恢复的
+# 完整机制（真实集群的持久化/归档等价配置见 runbooks/postgresql-failover.md）。
+#
+# 设计要点：
+#   · data-plane-source：postgres:17-alpine 官方镜像，entrypoint args 追加
+#     -c archive_mode=on / archive_command（cp 到共享 /wal PVC）/ archive_timeout
+#     —— 不换镜像、不加 sidecar。
+#   · 三个 local-path PVC：data（PGDATA）、wal（归档段）、backup-stage
+#     （basebackup 产物，恢复侧复用）。kind 销毁即清空，符合演练形态。
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-plane-wal
+  namespace: agent-platform-dependencies
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-plane-backup
+  namespace: agent-platform-dependencies
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: data-plane-source
+  namespace: agent-platform-dependencies
+spec:
+  serviceName: data-plane-source
+  replicas: 1
+  selector:
+    matchLabels:
+      app: data-plane-source
+  template:
+    metadata:
+      labels:
+        app: data-plane-source
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          args:
+            - "-c"
+            - "archive_mode=on"
+            - "-c"
+            - "archive_command=test ! -f /wal/%f && cp %p /wal/%f"
+            - "-c"
+            - "archive_timeout=10"
+            - "-c"
+            - "wal_level=replica"
+          env:
+            - name: POSTGRES_USER
+              value: agent_platform
+            - name: POSTGRES_DB
+              value: agent_platform
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agent-platform-kind-dependencies
+                  key: postgres-value
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "agent_platform", "-d", "agent_platform"]
+            periodSeconds: 2
+            failureThreshold: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: wal
+              mountPath: /wal
+            - name: backup
+              mountPath: /backup
+      volumes:
+        - name: wal
+          persistentVolumeClaim:
+            claimName: data-plane-wal
+        - name: backup
+          persistentVolumeClaim:
+            claimName: data-plane-backup
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 2Gi

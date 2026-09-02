@@ -7,3 +7,6 @@
 5.创建空NATSR3 Stream,从未完成Outbox重放。先启动reconciliation,再逐tenant 恢复worker。
 PITR通过条件:RPO/RTo 达标、零audit gap、零committed checksum 错误、零重复Effect、零stale fence success,任何一项失败都保持隔离并继续取证,不切换生产流量。
 .D
+
+补充（Phase 5 Step 2）：kind 内已实跑 WAL 归档 → basebackup → PITR 双 target 恢复 + 定时全量备份/
+失效告警/TTL 维护（`docs/phase-5-data-plane.md`；操作见 `backup-and-ttl.md`）。逻辑备份回退路径不变。
