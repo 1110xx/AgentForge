@@ -181,7 +181,26 @@ paths = ing["spec"]["rules"][0]["http"]["paths"]
 assert any(p["path"] == "/" for p in paths), "frontend root path missing in ingress"
 conf = next(doc for doc in frontend if doc["kind"] == "ConfigMap")
 assert "proxy_buffering off;" in conf["data"]["default.conf"]
-print("frontend profile: api+frontend deployments, ConfigMap proxy, ingress SSE annotation OK")
+# Phase 4.5 (4.3 source-sync): the template must carry the three runtime
+# fixes from the 4.3 incident (explicit resolver + FQDN upstream + SDK
+# prefix rewrite) — without them the next helm upgrade re-breaks the
+# reverse proxy with 502s.
+default_conf = conf["data"]["default.conf"]
+assert "resolver " in default_conf, "nginx resolver missing from frontend ConfigMap"
+assert ".svc.cluster.local" in default_conf, "FQDN upstream missing from frontend ConfigMap"
+assert "rewrite ^/api/agent-platform" in default_conf, "SDK prefix rewrite missing from frontend ConfigMap"
+# …and the egress NetworkPolicy that lets the proxy actually reach the API
+# Service pod-to-pod (control-default-deny blocks all Egress otherwise).
+eg_np = next(
+    (doc for doc in frontend if doc.get("kind") == "NetworkPolicy"
+     and doc.get("metadata", {}).get("name") == "control-frontend-egress"),
+    None,
+)
+assert eg_np is not None, "control-frontend-egress NetworkPolicy missing (4.3 source-sync)"
+assert eg_np["spec"]["policyTypes"] == ["Egress"], eg_np["spec"]
+assert eg_np["spec"]["egress"][0]["ports"][0]["port"] == 8080, eg_np["spec"]["egress"]
+print("frontend profile: api+frontend deployments, ConfigMap proxy (resolver/FQDN/rewrite), frontend-egress NP, ingress SSE annotation OK")
+
 
 # Phase 4.1 assertion for the production profile: the rendered image refs must
 # be digest-pinned to real, non-placeholder sha256 digests in the git golden
@@ -205,5 +224,15 @@ for want_deployment in ("agent-platform-api", "agent-platform-orchestrator", "ag
     assert "registry.example.invalid" not in repo, f"{want_deployment}: example registry still referenced: {repo}"
 print("prod profile: api/orchestrator/frontend digest-pinned to real sha256 refs (golden values)")
 PY
+
+# Phase 4.5 (4.3 source-sync): the image-baked fallback config must carry the
+# same resolver/FQDN/rewrite fixes, or standalone image smoke runs re-hit the
+# 502 "usable standalone" trap from the incident notes.
+if ! grep -q "resolver " "$root_dir/deploy/images/frontend-default.conf" \
+  || ! grep -q "svc.cluster.local" "$root_dir/deploy/images/frontend-default.conf" \
+  || ! grep -q "rewrite ^/api/agent-platform" "$root_dir/deploy/images/frontend-default.conf"; then
+  echo "check-k8s: image-baked frontend-default.conf missing resolver/FQDN/rewrite (4.3 source-sync)" >&2
+  exit 69
+fi
 
 echo "k8s static gate passed"

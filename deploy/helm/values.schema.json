@@ -398,6 +398,7 @@
             "staticRoot",
             "apiServiceName",
             "apiPort",
+            "resolver",
             "proxyReadTimeoutSeconds"
           ],
           "properties": {
@@ -412,6 +413,11 @@
             "apiPort": {
               "type": "integer",
               "minimum": 1
+            },
+            "resolver": {
+              "type": "string",
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$",
+              "description": "CoreDNS ClusterIP for the nginx reverse proxy (FQDN upstream needs an explicit resolver)"
             },
             "proxyReadTimeoutSeconds": {
               "type": "integer",

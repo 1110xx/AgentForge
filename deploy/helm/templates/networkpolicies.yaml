@@ -45,6 +45,33 @@ spec:
           port: 8080
 ---
 {{- if .Values.frontend.enabled }}
+# Phase 4.5: source-sync of the 4.3 incident fix — the frontend reverse
+# proxy reaches the API Service pod-to-pod, and control-default-deny blocks
+# ALL Egress, so without this policy the SPA's /api/agent-platform calls time
+# out (502). The policy was hand-applied at runtime in the 4.3 round; it is
+# templated here so a helm upgrade can never regress it again.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: control-frontend-egress
+  namespace: agent-platform-control
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform-frontend
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              agent.platform/plane: control
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agent-platform-api
+      ports:
+        - protocol: TCP
+          port: 8080
+---
 # Phase 4.2 prod-form gate catch: control-default-deny also protects the
 # frontend pods, and no policy admitted the ingress controller's reverse
 # proxy into them (root path 504 / api path 200). Allow ingress-nginx on the

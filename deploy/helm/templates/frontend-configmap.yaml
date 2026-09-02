@@ -24,12 +24,20 @@ data:
       }
 
       location /api/agent-platform/ {
-        # Lazy upstream resolution (variable form) — nginx resolves the name at
-        # request time, so the pod is also robust to DNS warm-up and the image
-        # is usable standalone. Mirrors deploy/images/frontend-default.conf.
-        set $api_upstream http://{{ .Values.frontend.nginx.apiServiceName }}:{{ .Values.frontend.nginx.apiPort }};
+        # Lazy upstream resolution (variable form) with an explicit resolver:
+        # nginx resolves the name at request time against CoreDNS, so the pod
+        # is robust to DNS warm-up. The upstream MUST be a FQDN — a bare short
+        # name gets no search-domain expansion here (CoreDNS ServFail -> nginx
+        # 502). Phase 4.5 sync of the 4.3 runtime fix (18081/18080 all-502
+        # incident). Mirrors deploy/images/frontend-default.conf.
+        resolver {{ .Values.frontend.nginx.resolver }} valid=30s;
+        set $api_upstream http://{{ .Values.frontend.nginx.apiServiceName }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.frontend.nginx.apiPort }};
         proxy_pass $api_upstream;
         proxy_http_version 1.1;
+        # Prefix adaptation: the SDK base is /api/agent-platform/ while the API
+        # router lives under /v1/ — strip the proxy prefix so requests reach
+        # the real router (preventive part of the same 4.3 incident).
+        rewrite ^/api/agent-platform(/.*)$ {{ "$1" }} break;
         proxy_set_header Host {{ "$host" }};
         proxy_set_header X-Forwarded-For {{ "$proxy_add_x_forwarded_for" }};
         proxy_set_header X-Forwarded-Proto {{ "$scheme" }};

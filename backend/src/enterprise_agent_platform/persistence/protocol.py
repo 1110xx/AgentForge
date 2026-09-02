@@ -105,6 +105,10 @@ class PlatformTransaction(Protocol):
     ) -> tuple[UiSurfaceRecord, ...]: ...
     async def get_event_retention_floor(self, tenant_id: str, run_id: str) -> int: ...
     async def list_schedulable_work(self) -> tuple[SchedulableWork, ...]: ...
+
+    async def list_stale_provisioning(
+        self, now: datetime, *, limit: int = 50
+    ) -> tuple[tuple[AttemptRecord, ExecutionLeaseRecord], ...]: ...
     async def claim_idempotency(
         self,
         tenant_id: str,
@@ -242,6 +246,22 @@ class PlatformStore(Protocol):
         self, tenant_id: str, run_id: str
     ) -> tuple[FollowupRequestRecord, ...]: ...
     async def list_schedulable_work(self) -> tuple[SchedulableWork, ...]: ...
+
+    async def list_stale_provisioning(
+        self, now: datetime, *, limit: int = 50
+    ) -> tuple[tuple[AttemptRecord, ExecutionLeaseRecord], ...]:
+        """Scan Attempts stuck in PROVISIONING whose RESERVED Lease has passed
+        ``provision_deadline`` (Phase 4.5, 4.4 leftover #2).
+
+        A scheduler restart between ``reserve_attempt`` and the actual Job/Pod
+        dispatch leaves the Attempt PROVISIONING and the Lease RESERVED forever
+        — there is no running Runtime to expire it — so the Run is blocked by
+        the "one active Attempt/Lease per Run" guard. The Scheduler sweep feeds
+        each pair to ``recover_stale_provisioning`` which RELEASEs the stale
+        Lease, FAILs the orphan Attempt, and re-opens the Run/Unit to RECOVERING
+        so a successor Attempt (generation+1) is re-reserved.
+        """
+        ...
     async def list_ui_surfaces(
         self, tenant_id: str, run_id: str | None = None
     ) -> tuple[UiSurfaceRecord, ...]: ...

@@ -9,7 +9,11 @@ from .checkpoints import (
 )
 from .context import RequestContext
 from .effect_recovery import FailedEffectRecovery, FailedEffectRecoveryService
-from .reconciler import CompleteCancellation, recover_expired_lease
+from .reconciler import (
+    CompleteCancellation,
+    recover_expired_lease,
+    recover_stale_provisioning,
+)
 from .scheduler import FairScheduler, claim_ready_work
 from .service import ControlPlaneService
 
@@ -29,4 +33,5 @@ __all__ = [
     "commit_checkpoint",
     "pause_for_approval",
     "recover_expired_lease",
+    "recover_stale_provisioning",
 ]

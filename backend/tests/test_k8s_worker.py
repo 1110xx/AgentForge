@@ -91,6 +91,7 @@ def test_build_attempt_request_maps_ticket_fields() -> None:
     assert request.service_account_name == "agent-platform-sandbox"
     assert request.runtime_class_name is None
     assert request.active_deadline_seconds == 300
+    assert request.ttl_seconds_after_finished == 600  # Phase 4.5 (4.4 leftover #1)
 
 
 def test_dispatch_runner_submits_job_with_runtime_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -141,6 +142,10 @@ def test_dispatch_runner_submits_job_with_runtime_env(monkeypatch: pytest.Monkey
     )
     assert body["spec"]["activeDeadlineSeconds"] == 300
     assert body["spec"]["backoffLimit"] == 0
+    # Phase 4.5 (4.4 leftover #1): a short Job TTL (600s) so sandbox Jobs are
+    # reaped quickly after completion — the 3600s default let 1016 soak runs
+    # stack up and exhaust the sandbox quota in the 4.4 pressure test.
+    assert body["spec"]["ttlSecondsAfterFinished"] == 600
 
 
 def test_dispatch_runner_rejects_unpinned_image() -> None:
@@ -187,6 +192,7 @@ def test_create_k8s_worker_scheduler_wires_dispatch_runner(
     )
     assert scheduler.poll_interval == 5.0
     assert scheduler._runtime._image == RUNTIME_IMAGE  # type: ignore[attr-defined]
+    assert scheduler._runtime._ttl_seconds_after_finished == 600  # type: ignore[attr-defined]
 
     # One tick against a real queue must produce exactly one submitted Job.
     import asyncio
@@ -225,6 +231,27 @@ def test_create_k8s_worker_scheduler_wires_dispatch_runner(
     assert body["metadata"]["labels"]["app.kubernetes.io/name"] == (
         "enterprise-agent-runtime"
     )
+
+
+def test_worker_scheduler_job_ttl_is_env_configurable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Phase 4.5 (4.4 leftover #1): AGENT_PLATFORM_SANDBOX_JOB_TTL_SECONDS
+    overrides the 600s default — operators can shrink the TTL under pressure
+    without redeploying."""
+    monkeypatch.delenv("AGENT_PLATFORM_DATABASE_URL", raising=False)
+    monkeypatch.setenv("AGENT_PLATFORM_STORE", "memory")
+    monkeypatch.setenv("AGENT_PLATFORM_RUNTIME_IMAGE", RUNTIME_IMAGE)
+    monkeypatch.setenv("AGENT_PLATFORM_CONTROL_PLANE_URL", "http://control:8080")
+    monkeypatch.setenv("AGENT_PLATFORM_SANDBOX_NAMESPACE", "sandbox")
+    monkeypatch.setenv("AGENT_PLATFORM_SANDBOX_JOB_TTL_SECONDS", "120")
+
+    fake = _FakeBatchClient()
+    scheduler = create_k8s_worker_scheduler(
+        store=InMemoryPlatformStore(),
+        orchestrator=KubernetesOrchestrator(fake, timeout_seconds=5.0),
+    )
+    assert scheduler._runtime._ttl_seconds_after_finished == 120  # type: ignore[attr-defined]
 
 
 def test_run_worker_returns_awaitable(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -57,6 +57,7 @@ class SchedulerService:
     poll_interval: float = 2.0
     worker_id: str = field(default_factory=lambda: f"scheduler:{id(object()):x}")
     idempotency_purge_interval: float = 60.0
+    stale_provisioning_sweep_interval: float = 60.0
     telemetry: DiagnosticTelemetry | None = None
     _scheduler: FairScheduler = field(init=False, repr=False)
     _runtime: object = field(init=False, repr=False)
@@ -64,6 +65,7 @@ class SchedulerService:
     _active_tickets: set[str] = field(default_factory=set, init=False, repr=False)
     _wake_event: asyncio.Event = field(default_factory=asyncio.Event, init=False, repr=False)
     _last_idempotency_purge: float = field(default=0.0, init=False, repr=False)
+    _last_stale_sweep: float = field(default=0.0, init=False, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -98,6 +100,15 @@ class SchedulerService:
                 if now - self._last_idempotency_purge >= self.idempotency_purge_interval:
                     self._last_idempotency_purge = now
                     await self._purge_idempotency()
+                # Phase 4.5 (4.4 leftover #2): periodically reclaim Attempts
+                # orphaned in PROVISIONING (scheduler restart between
+                # reserve_attempt and Job dispatch). Same maintenance cadence
+                # as the idempotency sweep — bounded, never blocks dispatch.
+                if (
+                    now - self._last_stale_sweep >= self.stale_provisioning_sweep_interval
+                ):
+                    self._last_stale_sweep = now
+                    await self._sweep_stale_provisioning()
                 # Sleep for the poll interval unless a wake-up delivery (NATS
                 # inbox) signals that new work may exist — claim immediately
                 # instead of waiting out the full poll cycle.
@@ -121,6 +132,50 @@ class SchedulerService:
         """
         if self._task is None or not self._task.done():
             self._wake_event.set()
+
+    async def _sweep_stale_provisioning(self) -> None:
+        """Phase 4.5 (4.4 leftover #2): reclaim PROVISIONING orphans.
+
+        A scheduler restart between ``reserve_attempt`` and the actual Job/Pod
+        dispatch leaves the Attempt PROVISIONING and the Lease RESERVED forever
+        — no Runtime exists to expire them — so the Run/Unit stays blocked by
+        the active-Attempt/Lease guard. Scan the store and, for each stale pair,
+        terminalize the orphan and re-open the Unit to RECOVERING via
+        ``recover_stale_provisioning`` so the next poll re-reserves
+        generation+1. Best-effort: a concurrent activation is a no-op.
+        """
+        from datetime import UTC, datetime
+
+        from enterprise_agent_platform.control.reconciler import (
+            recover_stale_provisioning,
+        )
+        from enterprise_agent_platform.control.context import RequestContext
+
+        try:
+            stale = await self.store.list_stale_provisioning(
+                datetime.now(UTC)
+            )
+            for attempt, _lease in stale:
+                ctx = RequestContext(
+                    tenant_id=attempt.tenant_id,
+                    actor_id=f"scheduler:{self.worker_id}",
+                    scopes=("runs:execute",),
+                    request_id=f"stale-provisioning:{attempt.attempt_id}",
+                )
+                result = await recover_stale_provisioning(
+                    self.store, ctx, attempt_id=attempt.attempt_id
+                )
+                if result is not None:
+                    logger.info(
+                        "Reclaimed stale PROVISIONING: run=%s attempt=%s "
+                        "generation=%d successor=%s",
+                        attempt.run_id,
+                        attempt.attempt_id,
+                        attempt.generation,
+                        result.successor_attempt.attempt_id,
+                    )
+        except Exception:
+            logger.exception("stale PROVISIONING sweep failed (non-fatal)")
 
     async def _purge_idempotency(self) -> None:
         """Sweep expired idempotency records, best-effort and bounded."""

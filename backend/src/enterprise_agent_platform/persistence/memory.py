@@ -476,6 +476,45 @@ class _MemoryTransaction:
             )
         )
 
+    async def list_stale_provisioning(
+        self, now: datetime, *, limit: int = 50
+    ) -> tuple[tuple[AttemptRecord, ExecutionLeaseRecord], ...]:
+        """Phase 4.5 (4.4 leftover #2): scan Attempts stuck in PROVISIONING whose
+        RESERVED Lease has passed ``provision_deadline``.
+
+        A scheduler restart between ``reserve_attempt`` and the actual Job/Pod
+        dispatch leaves the Attempt PROVISIONING and the Lease RESERVED forever
+        (no running Runtime to expire them), so the Run/Unit is blocked by the
+        "one active Attempt/Lease per Run" guard. Each returned pair is fed to
+        ``recover_stale_provisioning`` which FAILs the orphan Attempt, RELEASEs
+        the stale Lease, and re-opens the Run/Unit to RECOVERING for a
+        successor (generation+1) reservation.
+        """
+        stale: list[tuple[AttemptRecord, ExecutionLeaseRecord]] = []
+        for (attempt_tenant, _), attempt in self._state.attempts.items():
+            if attempt.status is not AttemptState.PROVISIONING:
+                continue
+            lease = next(
+                (
+                    candidate
+                    for (lease_tenant, _), candidate in self._state.leases.items()
+                    if lease_tenant == attempt_tenant
+                    and candidate.attempt_id == attempt.attempt_id
+                ),
+                None,
+            )
+            if (
+                lease is None
+                or lease.state is not ExecutionLeaseState.RESERVED
+                or lease.provision_deadline is None
+                or now < lease.provision_deadline
+            ):
+                continue
+            stale.append((_detached(attempt), _detached(lease)))
+            if len(stale) >= limit:
+                break
+        return tuple(stale)
+
     async def claim_idempotency(
         self,
         tenant_id: str,
@@ -1515,6 +1554,39 @@ class InMemoryPlatformStore:
                 for (record_tenant, _), record in self._state.followups.items()
                 if record_tenant == tenant_id and record.run_id == run_id
             )
+
+    async def list_stale_provisioning(
+        self, now: datetime, *, limit: int = 50
+    ) -> tuple[tuple[AttemptRecord, ExecutionLeaseRecord], ...]:
+        """Phase 4.5 (4.4 leftover #2): scan Attempts stuck in PROVISIONING whose
+        RESERVED Lease has passed ``provision_deadline`` (scheduler restart,
+        store-side mirror of ``_MemoryTransaction``).
+        """
+        async with self._lock:
+            stale: list[tuple[AttemptRecord, ExecutionLeaseRecord]] = []
+            for (attempt_tenant, _), attempt in self._state.attempts.items():
+                if attempt.status is not AttemptState.PROVISIONING:
+                    continue
+                lease = next(
+                    (
+                        candidate
+                        for (lease_tenant, _), candidate in self._state.leases.items()
+                        if lease_tenant == attempt_tenant
+                        and candidate.attempt_id == attempt.attempt_id
+                    ),
+                    None,
+                )
+                if (
+                    lease is None
+                    or lease.state is not ExecutionLeaseState.RESERVED
+                    or lease.provision_deadline is None
+                    or now < lease.provision_deadline
+                ):
+                    continue
+                stale.append((_detached(attempt), _detached(lease)))
+                if len(stale) >= limit:
+                    break
+            return tuple(stale)
 
     async def get_effect_by_key(
         self, tenant_id: str, effect_key: str

@@ -25,6 +25,13 @@ class AttemptJobRequest:
     workspace_size: str
     tmp_size: str
     active_deadline_seconds: int
+    # Phase 4.5 (4.4 leftover #1): completed Jobs are reaped by the K8s
+    # TTL-controller after ``ttl_seconds_after_finished``. The historical 3600s
+    # default let finished Jobs pile up against the sandbox quota during
+    # high-throughput bursts (observed in Phase 4.4: 1016 runs filled the
+    # 100-Job count quota and stalled scheduling). Short default (600s) keeps
+    # the quota headroom without relying on an external cleanup CronJob.
+    ttl_seconds_after_finished: int = 600
     service_account_name: str = "agent-platform-sandbox"
     runtime_class_name: str | None = "agent-platform-gvisor"
     priority_class_name: str = "agent-platform-attempt"
@@ -68,7 +75,7 @@ def build_attempt_job(request: AttemptJobRequest) -> dict[str, Any]:
         "spec": {
             "backoffLimit": 0,
             "activeDeadlineSeconds": request.active_deadline_seconds,
-            "ttlSecondsAfterFinished": 3600,
+            "ttlSecondsAfterFinished": request.ttl_seconds_after_finished,
             "template": {
                 "metadata": {"labels": labels},
                 "spec": {

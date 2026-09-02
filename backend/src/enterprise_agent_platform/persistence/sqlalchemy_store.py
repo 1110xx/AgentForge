@@ -965,6 +965,43 @@ class SqlAlchemyPlatformTransaction:
             )
         return tuple(candidates)
 
+    async def list_stale_provisioning(
+        self, now: datetime, *, limit: int = 50
+    ) -> tuple[tuple[AttemptRecord, ExecutionLeaseRecord], ...]:
+        """Phase 4.5 (4.4 leftover #2): orphaned PROVISIONING Attempts whose
+        RESERVED Lease has passed ``provision_deadline`` (scheduler restart
+        between reserve_attempt and the actual Job/Pod dispatch leaves both
+        stuck forever; the Run/Unit is then blocked by the active Attempt/Lease
+        guard). Two queries (attempts then their RESERVED+expired lease) keep
+        the column mapping unambiguous on the join.
+        """
+        attempt_rows = (
+            await self._session.execute(
+                select(attempt_table)
+                .where(attempt_table.c.status == AttemptState.PROVISIONING.value)
+                .order_by(attempt_table.c.created_at)
+                .limit(limit)
+            )
+        ).all()
+        pairs: list[tuple[AttemptRecord, ExecutionLeaseRecord]] = []
+        for attempt_row in attempt_rows:
+            attempt = _attempt(attempt_row)
+            lease_rows = (
+                await self._session.execute(
+                    select(execution_lease_table)
+                    .where(
+                        execution_lease_table.c.attempt_id == attempt.attempt_id,
+                        execution_lease_table.c.state == ExecutionLeaseState.RESERVED.value,
+                        execution_lease_table.c.provision_deadline <= now,
+                    )
+                    .limit(1)
+                )
+            ).all()
+            if not lease_rows:
+                continue
+            pairs.append((attempt, _lease(lease_rows[0])))
+        return tuple(pairs)
+
     async def claim_idempotency(
         self,
         tenant_id: str,
@@ -1960,6 +1997,19 @@ class SqlAlchemyPlatformStore:
 
     async def list_schedulable_work(self) -> tuple[SchedulableWork, ...]:
         return await self._read(lambda tx: tx.list_schedulable_work())
+
+    async def list_stale_provisioning(
+        self, now: datetime, *, limit: int = 50
+    ) -> tuple[tuple[AttemptRecord, ExecutionLeaseRecord], ...]:
+        """Phase 4.5 (4.4 leftover #2): orphaned PROVISIONING Attempts whose
+        RESERVED Lease has passed ``provision_deadline`` (scheduler restart
+        between reserve_attempt and the actual Job/Pod dispatch leaves both
+        stuck forever; the Run/Unit is then blocked by the active Attempt/Lease
+        guard). Thin store proxy — the join lives on the transaction.
+        """
+        return await self._read(
+            lambda tx: tx.list_stale_provisioning(now, limit=limit)
+        )
 
     async def list_events(
         self, tenant_id: str, run_id: str

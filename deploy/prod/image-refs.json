@@ -1,7 +1,7 @@
 {
   "controlPlane": {
     "repository": "localhost:5001/enterprise-agent-platform/control-plane",
-    "digest": "sha256:3cd6d61082efebc68df4640371ef350fcbc18b3f85602d864c855b64f4ff83ca"
+    "digest": "sha256:e5b9b5cdc8c1570dae2a2659b35fddbb03126e4f13490a2376f5e1943ef6e279"
   },
   "runtime": {
     "repository": "localhost:5001/enterprise-agent-platform/runtime",

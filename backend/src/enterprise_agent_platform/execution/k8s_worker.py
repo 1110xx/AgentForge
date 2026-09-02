@@ -123,6 +123,7 @@ def build_attempt_request(
     service_account: str = "agent-platform-sandbox",
     runtime_class: str | None = None,
     active_deadline_seconds: int = 300,
+    ttl_seconds_after_finished: int = 600,
     cpu_request: str = "50m",
     cpu_limit: str = "500m",
     memory_request: str = "64Mi",
@@ -158,6 +159,7 @@ def build_attempt_request(
         workspace_size=workspace_size,
         tmp_size=tmp_size,
         active_deadline_seconds=active_deadline_seconds,
+        ttl_seconds_after_finished=ttl_seconds_after_finished,
         service_account_name=service_account,
         runtime_class_name=runtime_class,
         bootstrap_token=bootstrap_token,
@@ -186,6 +188,7 @@ class K8sJobDispatchRunner:
         service_account: str = "agent-platform-sandbox",
         runtime_class: str | None = None,
         active_deadline_seconds: int = 300,
+        ttl_seconds_after_finished: int = 600,
         bootstrap_token: str | None = None,
         telemetry: DiagnosticTelemetry | None = None,
     ) -> None:
@@ -196,6 +199,7 @@ class K8sJobDispatchRunner:
         self._service_account = service_account
         self._runtime_class = runtime_class
         self._active_deadline_seconds = active_deadline_seconds
+        self._ttl_seconds_after_finished = ttl_seconds_after_finished
         self._bootstrap_token = bootstrap_token
         self._telemetry = telemetry
 
@@ -224,6 +228,7 @@ class K8sJobDispatchRunner:
             service_account=self._service_account,
             runtime_class=self._runtime_class,
             active_deadline_seconds=self._active_deadline_seconds,
+            ttl_seconds_after_finished=self._ttl_seconds_after_finished,
             bootstrap_token=self._bootstrap_token
             or f"projected:{ticket.tenant_id}",
             extra_env=extra_env,
@@ -342,6 +347,9 @@ def create_k8s_worker_scheduler(
         runtime_class=runtime_class,
         active_deadline_seconds=_env_int(
             "AGENT_PLATFORM_SANDBOX_ATTEMPT_DEADLINE_SECONDS", 300
+        ),
+        ttl_seconds_after_finished=_env_int(
+            "AGENT_PLATFORM_SANDBOX_JOB_TTL_SECONDS", 600
         ),
         telemetry=telemetry,
     )

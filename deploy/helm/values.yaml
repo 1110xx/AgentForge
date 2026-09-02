@@ -48,6 +48,11 @@ frontend:
     staticRoot: /usr/share/nginx/html
     apiServiceName: agent-platform-api
     apiPort: 8080
+    # CoreDNS ClusterIP — the nginx reverse proxy needs an explicit resolver
+    # before a variable-form proxy_pass, and the upstream MUST be a FQDN
+    # (bare short names get no search-domain expansion and nginx 502s).
+    # Root cause of the Phase 4.3 frontend 502 incident.
+    resolver: 10.96.0.10
     # SSE: the embedded reverse proxy disables buffering and the ingress gets
     # nginx.ingress.kubernetes.io/proxy-buffering=off when frontend is on,
     # keeping the /v1/*/events stream flowing.
