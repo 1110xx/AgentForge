@@ -77,7 +77,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install helm (no cluster gate: lint + template + schema + YAML)
+      - name: "Install helm (no cluster gate: lint + template + schema + YAML)"
         uses: azure/setup-helm@v4
         with:
           version: v3.16.2
@@ -94,35 +94,43 @@ jobs:
         run: bash scripts/check-k8s.sh
 
   image-gate:
-    # Phase 4.1 (G1): the image publish pipeline. Builds all three production
-    # images (control-plane / runtime / frontend) on every run; on main pushes
-    # with a registry configured it additionally pushes them and bakes the
-    # real content-addressed digests into the golden deploy/prod/values.yaml,
-    # committing the update (idempotent: identical content -> identical digest
-    # -> no commit -> no re-publish loop). Requisite repo variables/secrets:
-    #   vars.AGENT_PLATFORM_REGISTRY             registry host[:port]
-    #   secrets.AGENT_PLATFORM_REGISTRY_USERNAME (+ _PASSWORD)
+    # Phase 5 Step 3 (supply chain): build-only digest gate on PRs; on main
+    # pushes the three images are published to GitHub Container Registry
+    # (ghcr.io/<owner>/agentforge/enterprise-agent-platform/{...}) using the
+    # runner's native GITHUB_TOKEN (packages: write) — no external registry
+    # credentials. The pipeline then bakes the real content-addressed digests
+    # into the golden deploy/prod/values.yaml and GitOps-commits them
+    # (idempotent: identical content -> identical digest -> no commit -> no
+    # re-publish loop).
+    #   permissions: contents: write (GitOps commit+push), packages: write (GHCR)
     # Optional mirrors: vars.AGENT_PLATFORM_UV_INDEX_URL / _NPM_REGISTRY_URL.
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    permissions:
+      contents: write
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
       - name: Build all three images (build-only gate)
         run: bash scripts/build-images.sh
 
-      - name: Publish images + bake golden prod digests (main, registry configured)
-        if: github.ref == 'refs/heads/main' && vars.AGENT_PLATFORM_REGISTRY != ''
+      - name: Login to GHCR (main only)
+        if: github.ref == 'refs/heads/main'
         env:
-          AGENT_PLATFORM_REGISTRY: ${{ vars.AGENT_PLATFORM_REGISTRY }}
-          AGENT_PLATFORM_REGISTRY_USERNAME: ${{ secrets.AGENT_PLATFORM_REGISTRY_USERNAME }}
-          AGENT_PLATFORM_REGISTRY_PASSWORD: ${{ secrets.AGENT_PLATFORM_REGISTRY_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "${GH_TOKEN}" | docker login ghcr.io -u "${{ github.repository_owner }}" --password-stdin
+
+      - name: Publish images to GHCR + bake golden prod digests (main only)
+        if: github.ref == 'refs/heads/main'
+        env:
+          AGENT_PLATFORM_REGISTRY: ghcr.io/${{ github.repository_owner }}/agentforge
           UV_INDEX_URL: ${{ vars.AGENT_PLATFORM_UV_INDEX_URL }}
           NPM_REGISTRY_URL: ${{ vars.AGENT_PLATFORM_NPM_REGISTRY_URL }}
         run: bash scripts/build-images.sh --push --update-prod-values
 
       - name: Commit golden prod values (GitOps; skips when digests unchanged)
-        if: github.ref == 'refs/heads/main' && vars.AGENT_PLATFORM_REGISTRY != ''
+        if: github.ref == 'refs/heads/main'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

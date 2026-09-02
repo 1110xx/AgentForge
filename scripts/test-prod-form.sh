@@ -64,9 +64,10 @@ fi
 cluster_name="${AGENT_PLATFORM_KIND_CLUSTER:-agent-platform-e2e}"
 control_namespace="agent-platform-control"
 
-# ── 1. 镜像：确认 golden digest 在本地 registry 有已推送 tag，并 load 进 kind 节点 ──
+# ── 1. 镜像：golden digest 必须在本地 docker 存在（build-images --push 产物）──
+#    以本地 registry 身份重打 tag 并 load 进 kind 节点（digest 内容寻址同物）──
 echo "== [1/6] loading golden images into kind nodes =="
-python - "$root_dir/deploy/prod/image-refs.json" <<'PYEOF'
+mapfile -t gate_load < <(python - "$root_dir/deploy/prod/image-refs.json" <<'PYEOF'
 import json
 import subprocess
 import sys
@@ -77,31 +78,45 @@ rows = subprocess.run(
     check=True, capture_output=True, text=True,
 ).stdout.splitlines()
 missing = []
+out = []
 for key in ("controlPlane", "runtime", "frontend"):
     image = refs[key]
-    repo, digest = image["repository"], image["digest"]
-    found = False
+    digest = image["digest"]
+    src = None
     for repo_tag in rows:
         insp = subprocess.run(
             ["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", repo_tag],
             capture_output=True, text=True,
         ).stdout
-        if f"{repo}@{digest}" in insp:
-            print(f"golden {key}: {repo_tag} -> {digest[:12]}", file=sys.stderr)
-            found = True
+        # Content-addressed: match local images by digest (host-agnostic); the
+        # kind node resolves image@digest from locally loaded content sharing
+        # the repo prefix, so we load under the local registry identity that
+        # the [3/6] helm override installs with (see below).
+        if digest in insp:
+            src = repo_tag
             break
-    if not found:
+    if src is None:
         missing.append(digest[:12])
+        continue
+    name = {"controlPlane": "control-plane", "runtime": "runtime",
+            "frontend": "frontend"}[key]
+    tag = f"localhost:5001/enterprise-agent-platform/{name}:gate"
+    subprocess.run(["docker", "tag", src, tag], check=True)
+    print(f"golden {key}: {src} -> {tag} ({digest[:12]})", file=sys.stderr)
+    out.append(tag)
 if missing:
     print("Run scripts/build-images.sh --push first; missing local images: "
           + ", ".join(missing), file=sys.stderr)
     sys.exit(65)
+# Windows python text mode doubles \\n -> \\r\\n; emit raw bytes so the
+# mapfile consumer gets LF-only lines.
+sys.stdout.buffer.write(("\n".join(out) + "\n").encode("utf-8"))
 PYEOF
-kind load docker-image \
-  localhost:5001/enterprise-agent-platform/control-plane:p41-demo \
-  localhost:5001/enterprise-agent-platform/runtime:p41-demo \
-  localhost:5001/enterprise-agent-platform/frontend:p41-demo3 \
-  --name "$cluster_name"
+)
+# Belt and braces: strip any remaining carriage returns.
+gate_load=("${gate_load[@]%$'\r'}")
+gate_load=("${gate_load[@]%$'\r'}")
+kind load docker-image "${gate_load[@]}" --name "$cluster_name"
 
 # ── 2. 接线（幂等）：ESO + cert-manager + ingress-nginx + Vault + SecretStore ──
 echo "== [2/6] ensuring G2/G3 wiring (bootstrap-prod-wiring.sh) =="
@@ -150,9 +165,14 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
 EOF
+# kind 节点无 GHCR 内容且包未推送前无法按 ghcr 名解析——本门以本地 registry 身份
+# 部署同一组 golden digest（内容寻址同物）；GHCR 仓库名是生产/CI 记录（digest 一致）。
 helm upgrade --install agent-platform "$root_dir/deploy/helm" \
   --namespace "$control_namespace" --create-namespace \
   --values "$root_dir/deploy/prod/values.yaml" \
+  --set-string "images.controlPlane.repository=localhost:5001/enterprise-agent-platform/control-plane" \
+  --set-string "images.runtime.repository=localhost:5001/enterprise-agent-platform/runtime" \
+  --set-string "images.frontend.repository=localhost:5001/enterprise-agent-platform/frontend" \
   --set ingress.host=agent-platform.e2e.local \
   --set sandbox.runtimeClassName="" \
   --set autoscaling.enabled=false \
@@ -307,7 +327,9 @@ curl -sf http://127.0.0.1:18080/api/agent-platform/v1/health/ready \
 # git-bash $root_dir is a POSIX path (/d/..); native python on Windows needs
 # the drive form — convert once (cygpath -m gives forward slashes).
 root_dir_native="$(cygpath -m "$root_dir" 2>/dev/null || echo "$root_dir")"
-runtime_ref="$(python -c "import json; d=json.load(open('$root_dir_native/deploy/prod/image-refs.json')); print(d['runtime']['repository'] + '@' + d['runtime']['digest'])")"
+runtime_digest="$(python -c "import json; d=json.load(open('$root_dir_native/deploy/prod/image-refs.json')); print(d['runtime']['digest'])")"
+# kind 节点以本地 registry 身份解析同一 digest（见 [3/6] helm override）。
+runtime_ref="localhost:5001/enterprise-agent-platform/runtime@${runtime_digest}"
 AGENT_PLATFORM_KIND=1 \
 AGENT_PLATFORM_KIND_API_URL="http://127.0.0.1:18080" \
 AGENT_PLATFORM_KIND_RUNTIME_IMAGE="$runtime_ref" \
