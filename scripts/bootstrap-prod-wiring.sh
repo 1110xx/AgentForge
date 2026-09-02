@@ -329,4 +329,4 @@ kubectl -n "$control_namespace" get secret "$platform_secret" -o json \
   | python "$root_dir/.tmp-eso-roundtrip.py" "$root_dir/.tmp-vault-map.json"
 rm -f "$root_dir/.tmp-eso-roundtrip.py" "$root_dir/.tmp-vault-map.json"
 
-echo "G2 接线就绪：ClusterSecretStore=$store_name，Secret=$platform_secret 已由 ESO 同步 9 键"
+echo "G2 接线就绪：ClusterSecretStore=$store_name，Secret=$platform_secret 已由 ESO 同步"

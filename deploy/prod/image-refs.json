@@ -1,14 +1,14 @@
 {
   "controlPlane": {
     "repository": "localhost:5001/enterprise-agent-platform/control-plane",
-    "digest": "sha256:e5b9b5cdc8c1570dae2a2659b35fddbb03126e4f13490a2376f5e1943ef6e279"
+    "digest": "sha256:6a32eba13dea627c01632cbe90bdc8dd20fa60998a393f444f1246fe83d6f881"
   },
   "runtime": {
     "repository": "localhost:5001/enterprise-agent-platform/runtime",
-    "digest": "sha256:c58927a50b11c8803dc77f84e0a985551c70c45c2ad4ec2f4b8dafedf949bbdc"
+    "digest": "sha256:b1bb33fef760df81a0025becb022997d2a457080d9f5751fce44dcd430cb63c5"
   },
   "frontend": {
     "repository": "localhost:5001/enterprise-agent-platform/frontend",
-    "digest": "sha256:961037b4bebce11eee10e8790d779839d6da07638b2a2d2510612c2ae34af17a"
+    "digest": "sha256:cf64fee3a0b91cd345c1c1d29ad2c6d431aa66a33864b6daf193088a875533ec"
   }
 }

@@ -192,7 +192,19 @@ pod_model_key="$(kubectl -n "$control_namespace" exec "$api_pod" -- \
   echo "model API key not injected into api pod" >&2
   exit 78
 }
-echo "G2 OK: api pod env <- Vault (DATABASE_URL + DeepSeek key)"
+# Phase 5 Step 1: the HMAC capability key must reach the api pod through the
+# same Vault -> ESO -> Secret -> envFrom chain (without it the Internal API
+# falls back to the documented static demo key — dev-only, unacceptable in
+# production form).
+vault_cap_key="$(kubectl -n "$control_namespace" get secret agent-platform-dependencies \
+  -o jsonpath='{.data.AGENT_PLATFORM_CAPABILITY_KEY}' | base64 -d)"
+pod_cap_key="$(kubectl -n "$control_namespace" exec "$api_pod" -- \
+  printenv AGENT_PLATFORM_CAPABILITY_KEY 2>/dev/null || true)"
+[[ -n "$pod_cap_key" && "$pod_cap_key" == "$vault_cap_key" ]] || {
+  echo "AGENT_PLATFORM_CAPABILITY_KEY != Vault value (runtime HMAC injection broken)" >&2
+  exit 78
+}
+echo "G2 OK: api pod env <- Vault (DATABASE_URL + DeepSeek key + capability key)"
 
 # ── 5. G3 断言：域名/TLS/最长前缀（通过 ingress-nginx NodePort） ──
 echo "== [5/6] G3 TLS/ingress assertions =="

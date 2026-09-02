@@ -152,3 +152,29 @@ def test_kind_api_requires_reference_token() -> None:
         # (before any route-level 404/405); Run lookup is the most direct probe.
         response = client.get("/v1/runs/run-does-not-exist")
         assert response.status_code in {401, 403}, response.text
+
+
+def test_forged_plaintext_runtime_token_rejected_401() -> None:
+    """Phase 5 Step 1 negative probe on the deployed Internal Runtime API.
+
+    The HTTP Internal API used to accept the deterministic plaintext bearer
+    ``runtime-token:{attempt_id}`` (no signature, no expiry). Since the HMAC
+    capability switch the verifier (security/runtime_tokens.py) rejects any
+    non-``rt.v1.*`` bearer with 401 *before* touching durable state — a forged
+    legacy token must never reach the op handler, whatever the attempt facts.
+    """
+    assert KIND_API_URL, "AGENT_PLATFORM_KIND_API_URL is required (port-forward)"
+    with httpx.Client(base_url=KIND_API_URL, timeout=30.0, trust_env=False) as client:
+        response = client.post(
+            "/internal/v1/runtime/bootstrap",
+            headers={"Authorization": "Bearer runtime-token:forged-attempt"},
+            json={
+                "pod_uid": "forged-pod",
+                "attempt_id": "attempt-forged",
+                "generation": 1,
+            },
+        )
+        assert response.status_code == 401, (
+            f"forged plaintext runtime token reached the op handler: "
+            f"{response.status_code} {response.text}"
+        )
