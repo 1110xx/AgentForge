@@ -96,9 +96,19 @@ for image_name in control-plane runtime frontend; do
 done
 
 # Write the canonical refs file consumed by the prod values updater, CI
-# artifacts and GitOps tooling.
-python_backend="backend/.venv/bin/python"
-[ -x "$python_backend" ] || python_backend="backend/.venv/Scripts/python.exe"
+# artifacts and GitOps tooling. The heredoc is stdlib-only; prefer the
+# backend venv, then any system python (Linux CI runners have python3).
+python_backend=""
+for cand in "backend/.venv/bin/python" "backend/.venv/Scripts/python.exe" "python3" "python"; do
+  if command -v "$cand" >/dev/null 2>&1; then
+    python_backend="$cand"
+    break
+  fi
+done
+if [ -z "$python_backend" ]; then
+  echo "no python interpreter found (needed to bake golden refs)" >&2
+  exit 70
+fi
 "$python_backend" - "$refs_out" "${refs[control-plane]}" "${refs[runtime]}" "${refs[frontend]}" <<'PY'
 import json
 import sys
