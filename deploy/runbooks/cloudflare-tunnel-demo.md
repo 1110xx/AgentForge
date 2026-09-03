@@ -20,6 +20,16 @@
 - CF zone `tyx-lab.online` active；API token 仅 Zone/DNS 权限（**不能**建隧道 → 需下面登录授权）
 - 演示站点=kind 里已部署的 prod-form 平台（GHCR digest 镜像 + ESO + 真实 LE issuer）
 
+## 0b. 中国网络实测修正（2026-09-03，宿主形态）
+- CF 边缘 **QUIC/UDP 7844 被干扰**（`CRYPTO_ERROR 0x178 tls: no application protocol`），
+  必须强制 http2：config 顶层加 `protocol: http2`（已写入 `~/.cloudflared/config.yml`）。
+- kubectl port-forward 用 `80:80` 写法（`127.0.0.1:80` 简写在本机 kubectl 报解析错）。
+- 上线成功证据：`Registered tunnel connection … location=hkg10 protocol=http2`；公网
+  ready/live/root 全 200；证书为 CF Universal SSL（subject CN=tyx-lab.online，
+  issuer Google Trust Services WE1），绿锁。
+- 启动器已就绪：`C:\Users\唐雨欣\cloudflared\01-ingress-forward.bat` +
+  `02-tunnel-run.bat`（双击两个窗口，关闭即下线）。
+
 ## 1. 用户交互三步（只有你能做，浏览器授权）
 在 `C:\Users\唐雨欣\cloudflared` 打开终端：
 ```bash
@@ -46,7 +56,12 @@ ingress:
   - service: http_status:404
 ```
 
-## 3. 形态 B：Pod 常驻集群（推荐面试；不用挂终端）
+## 3. 形态 B：Pod 常驻集群（原推荐，暂时受阻）
+> ⚠️ 2026-09-03 实况：本机 kind **Pod 出网 IPv4 当前不通**（探测证据：Pod 内 DNS 正常，但
+> 显式 IP 连 1.1.1.1:443 / CF 边缘 7844/443 全部超时，docker hub 也不通；节点镜像拉取正常；宿主
+> 直连全通）。疑 Docker Desktop/宿主网络层异常，非本项目代码。**当前演示走形态 A（宿主）**；
+> 网络修复后随时可切回（部署已备好，`kubectl -n agent-platform-control scale deploy
+> cloudflared-tunnel --replicas=1`，且 args 已带 `--protocol http2`）。
 用户做完第 1 步后，把凭据喂给脚本即可（脚本幂等，token/凭据只进 Secret 不入库）：
 ```bash
 # 凭据文件在 ~/.cloudflared/<UUID>.json

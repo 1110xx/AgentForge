@@ -20,10 +20,23 @@ spec:
       labels:
         app.kubernetes.io/name: cloudflared-tunnel
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: cloudflared
           image: cloudflare/cloudflared:2026.8.3
-          args: ["tunnel", "--config", "/etc/cloudflared/config.yml", "run"]
+          args: ["tunnel", "--no-autoupdate", "--protocol", "http2", "--config", "/etc/cloudflared/config.yml", "run"]
+          securityContext:
+            runAsUser: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           resources:
             requests:
               cpu: 50m
