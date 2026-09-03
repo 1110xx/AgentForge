@@ -278,7 +278,15 @@ def create_agent_platform_app(container: AgentPlatformContainer) -> FastAPI:
             message="internal server error",
         )
 
-    app.include_router(create_agent_platform_router(container))
+    public_router = create_agent_platform_router(container)
+    app.include_router(public_router)
+    # Mirror the public /v1 router under the same-origin /api/agent-platform
+    # prefix: the SPA baseUrl is "/api/agent-platform/" and the kind/ingress
+    # path passes through without prefix rewriting (only health/metrics were
+    # historically mounted under the prefix), so /api/agent-platform/v1/* must
+    # reach the same handlers as /v1/*. Telemetry already normalizes the prefix
+    # (telemetry_service), so counters/dedup stay correct for both spellings.
+    app.include_router(public_router, prefix="/api/agent-platform")
 
     # Phase 4.3 (G5): expose the process-local Prometheus registry when the
     # prometheus sink is enabled (AGENT_PLATFORM_PROMETHEUS_ENABLED=1). The
