@@ -58,6 +58,54 @@ def create_store() -> PlatformStore:
     )
 
 
+def _resolve_run_sessions(telemetry):
+    """Env-driven run-session provider for the deployed API.
+
+    Attempt-pod model calls are proxied here over the internal
+    ``/runtime/model-call`` endpoint, so this provider is the single point
+    that decides whether the cluster talks to a real model:
+
+    * ``AGENT_PLATFORM_DEEPSEEK_API_KEY`` set → real ``DeepSeekModelSessionProvider``
+      (chat completions against ``AGENT_PLATFORM_DEEPSEEK_BASE_URL``,
+      default model from ``AGENT_PLATFORM_DEFAULT_MODEL`` = ``deepseek-chat``);
+    * key absent → the deterministic in-memory stub (unchanged demo/gate
+      behavior, zero external calls).
+
+    The provider is wrapped with telemetry so RED model-call counters
+    (open/run_task/followup/close emit ``agent_platform_model_calls_total``)
+    reach the same OTLP collector as the worker and runner pods.
+    """
+    from enterprise_agent_platform.config import PlatformSettings
+    from enterprise_agent_platform.platform.telemetry_service import (
+        maybe_wrap_sessions,
+    )
+
+    settings = PlatformSettings()
+    if settings.deepseek_api_key.strip():
+        from enterprise_agent_platform.reference.deepseek_provider import (
+            DeepSeekModelSessionProvider,
+        )
+
+        provider = DeepSeekModelSessionProvider(
+            api_key=settings.deepseek_api_key,
+            base_url=settings.deepseek_base_url,
+            model=settings.default_model or "deepseek-chat",
+        )
+        # model_id must be a registered label value (see _METRIC_LABEL_REGISTRIES);
+        # ``deepseek-chat`` / ``deepseek-reasoner`` are pre-registered.
+        model_id = (
+            settings.default_model if settings.default_model else "deepseek-chat"
+        )
+    else:
+        provider = InMemoryRunSessionProvider()
+        model_id = "deepseek-chat"
+    return maybe_wrap_sessions(
+        provider,
+        telemetry,
+        model_id=model_id,
+    )
+
+
 def create_container() -> AgentPlatformContainer:
     """Fresh API container: durable store + reference integrations + sessions.
 
@@ -69,7 +117,6 @@ def create_container() -> AgentPlatformContainer:
     """
     from enterprise_agent_platform.platform.telemetry_service import (
         create_telemetry_from_env,
-        maybe_wrap_sessions,
     )
     from enterprise_agent_platform.security.oidc import create_auth_provider_from_env
 
@@ -80,11 +127,8 @@ def create_container() -> AgentPlatformContainer:
     # followup/close emit ``agent_platform_model_calls_total``); the K8s
     # factory used to hand the bare provider to the HTTP session surface, so
     # runner model calls never reached the OTLP collector (round 21 gate).
-    run_sessions = maybe_wrap_sessions(
-        InMemoryRunSessionProvider(),
-        telemetry,
-        model_id="deepseek-chat",  # must be a registered label value (see _METRIC_LABEL_REGISTRIES)
-    )
+    # DeepSeek is selected when AGENT_PLATFORM_DEEPSEEK_API_KEY is present.
+    run_sessions = _resolve_run_sessions(telemetry)
 
     # External /v1 auth (Phase 5 Step 1): ReferenceLocalAuth (static bearer)
     # stays the default so disposable gates run with zero identity infra;
