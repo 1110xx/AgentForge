@@ -45,6 +45,13 @@ class AttemptJobRequest:
     # PROMETHEUS_ENABLED) from the worker, turning the runtime's per-attempt
     # spans into the same trace + log stream the control plane exports.
     extra_env: tuple[tuple[str, str], ...] = ()
+    # Local-demo egress workaround: ``hostNetwork: true`` lets the Pod runtime
+    # reach the Control-Plane API / external model endpoints through the node
+    # network stack when the overlay's external-egress path is unavailable
+    # (e.g. Docker Desktop/WSL2); ``dns_policy`` must then be
+    # ClusterFirstWithHostNet so in-cluster service names still resolve.
+    host_network: bool = False
+    dns_policy: str | None = None
 
 
 def _job_name(attempt_id: str) -> str:
@@ -83,6 +90,8 @@ def build_attempt_job(request: AttemptJobRequest) -> dict[str, Any]:
                     "automountServiceAccountToken": False,
                     "restartPolicy": "Never",
                     "enableServiceLinks": False,
+                    **({"hostNetwork": True} if request.host_network else {}),
+                    **({"dnsPolicy": request.dns_policy} if request.dns_policy else {}),
                     **(
                         {"runtimeClassName": request.runtime_class_name}
                         if request.runtime_class_name

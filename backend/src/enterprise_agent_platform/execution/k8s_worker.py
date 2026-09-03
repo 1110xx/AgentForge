@@ -22,6 +22,10 @@ Env contract (aligned with ``deploy/helm/templates/workers.yaml``):
 * ``AGENT_PLATFORM_SANDBOX_NAMESPACE``     — namespace for Attempt Jobs
 * ``AGENT_PLATFORM_SANDBOX_SERVICE_ACCOUNT`` — Job service account
 * ``AGENT_PLATFORM_SANDBOX_RUNTIME_CLASS`` — optional runtime class (empty = none)
+* ``AGENT_PLATFORM_SANDBOX_HOST_NETWORK`` — 1/true: attempt Jobs run with
+  ``hostNetwork: true`` + ``dnsPolicy: ClusterFirstWithHostNet`` (egress
+  workaround for hosts whose Pod overlay cannot reach external/node
+  endpoints; default off)
 * ``AGENT_PLATFORM_WORKER_POLL_INTERVAL``  — scheduler poll (default 2.0s)
 """
 from __future__ import annotations
@@ -66,6 +70,15 @@ def _env_float(name: str, default: float) -> float:
 def _env_int(name: str, default: int) -> int:
     raw = os.environ.get(name, "").strip()
     return int(raw) if raw else default
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name, "").strip().lower()
+    if raw in ("1", "true", "yes"):
+        return True
+    if raw in ("0", "false", "no"):
+        return False
+    return default
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +145,8 @@ def build_attempt_request(
     tmp_size: str = "64Mi",
     bootstrap_token: str | None = None,
     extra_env: tuple[tuple[str, str], ...] = (),
+    host_network: bool = False,
+    dns_policy: str | None = None,
 ) -> AttemptJobRequest:
     """Map a claimed DispatchTicket to the K8s Attempt Job spec.
 
@@ -164,6 +179,8 @@ def build_attempt_request(
         runtime_class_name=runtime_class,
         bootstrap_token=bootstrap_token,
         extra_env=extra_env,
+        host_network=host_network,
+        dns_policy=dns_policy,
     )
 
 
@@ -191,6 +208,8 @@ class K8sJobDispatchRunner:
         ttl_seconds_after_finished: int = 600,
         bootstrap_token: str | None = None,
         telemetry: DiagnosticTelemetry | None = None,
+        host_network: bool = False,
+        dns_policy: str | None = None,
     ) -> None:
         self._orchestrator = orchestrator
         self._image = image
@@ -202,6 +221,8 @@ class K8sJobDispatchRunner:
         self._ttl_seconds_after_finished = ttl_seconds_after_finished
         self._bootstrap_token = bootstrap_token
         self._telemetry = telemetry
+        self._host_network = host_network
+        self._dns_policy = dns_policy
 
     async def execute(self, ticket: DispatchTicket) -> None:
         import time as _time
@@ -232,6 +253,8 @@ class K8sJobDispatchRunner:
             bootstrap_token=self._bootstrap_token
             or f"projected:{ticket.tenant_id}",
             extra_env=extra_env,
+            host_network=self._host_network,
+            dns_policy=self._dns_policy,
         )
         started = _time.perf_counter()
         tele = self._telemetry
@@ -350,6 +373,12 @@ def create_k8s_worker_scheduler(
         ),
         ttl_seconds_after_finished=_env_int(
             "AGENT_PLATFORM_SANDBOX_JOB_TTL_SECONDS", 600
+        ),
+        host_network=_env_bool("AGENT_PLATFORM_SANDBOX_HOST_NETWORK"),
+        dns_policy=(
+            "ClusterFirstWithHostNet"
+            if _env_bool("AGENT_PLATFORM_SANDBOX_HOST_NETWORK")
+            else None
         ),
         telemetry=telemetry,
     )
