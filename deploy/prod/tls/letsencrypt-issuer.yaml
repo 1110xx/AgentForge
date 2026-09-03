@@ -1,22 +1,24 @@
-# Production Let's Encrypt issuers (ready-to-apply; requires a public domain)
+# Production Let's Encrypt issuers — DNS-01 via Cloudflare (validated 2026-09-03)
 #
-# Kind/G3 gates demonstrate the full TLS chain with an in-cluster demo CA
-# (issuer `agent-platform-demo-issuer`). For real production certificates:
+# Real issuance was proven from the local kind cluster (no public endpoint
+# needed — DNS-01 only makes outbound ACME/Cloudflare API calls):
+#   domain tyx-lab.online · zone active · token scopes Zone:Read + DNS:Read/Edit
+#   1) kubectl -n cert-manager create secret generic cloudflare-api-token-secret \
+#        --from-literal=api-token=<CF_API_TOKEN>
+#   2) kubectl apply -f this file
+#   3) Certificate with dnsNames [<host>.tyx-lab.online] -> READY in ~100s
+#   4) ingress-shim re-issues agent-platform-api-tls against letsencrypt-prod
+#      when the ingress host/issuer annotations point here (verified: served
+#      chain leaf <- YR1 <- Root YR(cross) <- ISRG Root X1, strict curl tls=0).
 #
-# 1. Own a public domain and either
-#    - make agent-platform.<domain> resolve to a publicly reachable endpoint
-#      (HTTP-01), or
-#    - provide DNS API credentials (DNS-01; recommended for private clusters).
-# 2. Fill `email` below (ACME account) and set the solver values.
-# 3. `kubectl apply -f deploy/prod/tls/letsencrypt-issuer.yaml`
-# 4. Switch the chart issuer and upgrade:
-#
-#    helm upgrade agent-platform deploy/helm \
-#      --values deploy/prod/values.yaml \
-#      --set ingress.tls.clusterIssuer=letsencrypt-prod
-#
-# Cost note: the domain registration is the only paid item in the Phase 5
-# supply-chain plan; nothing here is billed by cloud providers.
+# Notes / red lines:
+# - Never commit the api token; the Secret is created out-of-band.
+# - cert-manager v1.15.3 cleanup is flaky with this provider: issuance is fine
+#   but _acme-challenge TXT records may be left in the zone (DELETE path uses
+#   an empty zone id -> "zones//dns_records/..." 7003). Sweep them occasionally
+#   or upgrade cert-manager. Apex/wildcard dnsNames share _acme-challenge.<apex>
+#   and amplify the issue -> prefer host-level certs.
+# - email below is the ACME account contact (shown on renewal notices).
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -30,9 +32,11 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-staging-account-key
     solvers:
-      - http01:
-          ingress:
-            class: nginx
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token-secret
+              key: api-token
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -43,8 +47,10 @@ spec:
     email: admin@example.invalid
     server: https://acme-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
-      name: letsencrypt-prod-account-key
+      name: letsencrypt-prod
     solvers:
-      - http01:
-          ingress:
-            class: nginx
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token-secret
+              key: api-token

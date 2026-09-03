@@ -60,11 +60,29 @@
 
 - 集群内 TLS 全链已演示（G3：demo CA → root/api 200 / leaf SAN / ingress-nginx）；cert-manager
   签发机制在 demo issuer 上实证。
-- 真实 Let's Encrypt 签发需要**公有域名 + 可被 ACME 访问的端点**（HTTP-01）或 DNS API（DNS-01），
-  kind 本地集群无公有端点 → **零成本无法实测 LE 出证**。
-- 就绪物：`deploy/prod/tls/letsencrypt-issuer.yaml`（staging/prod 两个 ClusterIssuer，填
-  `email`/`solver` 即可；应用后把 values `ingress.tls.clusterIssuer` 切 `letsencrypt-prod` 并
-  helm upgrade）。域名是**唯一的付费项**（~$1-3/年首年），需用户决策后再接线。
+- **真实 LE 出证（DNS-01）已实测通过 —— 无需公网端点**：DNS-01 只做出站 ACME/Cloudflare API
+  调用，kind/私有集群也能签（2026-09-03，域名 `tyx-lab.online`，详情见 §4.1）。
+- 就绪物：`deploy/prod/tls/letsencrypt-issuer.yaml`（staging/prod 两个 ClusterIssuer，DNS-01
+  Cloudflare solver，填 `email` 即可应用）。域名是**唯一的付费项**（用户已购 `tyx-lab.online`）。
+
+### 4.1 真实签发证据（2026-09-03，DNS-01 + ingress 全链路）
+
+| 步骤 | 证据 |
+| --- | --- |
+| Zone 预检 | CF API：zone `tyx-lab.online` **status=active**，token 权限 = Zone:Read + DNS:Read/Edit |
+| Secret | `kubectl -n cert-manager create secret generic cloudflare-api-token-secret`（token 不入库） |
+| ClusterIssuer | `letsencrypt-prod` ACME 账号注册 Ready=True；solver=dns01/cloudflare |
+| 单主机证书 | `agent-platform.tyx-lab.online` Certificate ~100s **READY**（LE issuer `CN=YR1`，SAN 正确，90 天） |
+| 链验证 | leaf ← YR1 ← Root YR(cross) ← ISRG Root X1，签名数学逐级验证 OK（cryptography） |
+| ingress-shim 自动改签 | helm 切 `ingress.host=agent-platform.tyx-lab.online` + `clusterIssuer=letsencrypt-prod` → Certificate `agent-platform-api-tls` 自动重签为真实 LE 证书 |
+| 穿透 e2e | kind 无公网入口 → `kubectl port-forward` 8443:443 + `curl --resolve`：**严格 TLS（不 -k）`ssl_verify_result=0`**，root/live/ready 全 HTTP 200 |
+
+**复现命令**：`kubectl -n cert-manager create secret …cloudflare…` → `kubectl apply -f deploy/prod/tls/letsencrypt-issuer.yaml` → `helm upgrade agent-platform deploy/helm -n agent-platform-control --reuse-values --set ingress.host=<host> --set ingress.tls.clusterIssuer=letsencrypt-prod`。
+
+**已知瑕疵（诚实记录）**：cert-manager v1.15.3 的 CF cleanup 不稳——签发成功但
+`_acme-challenge` TXT 偶发残留（DELETE 走空 zone id → `zones//dns_records/…` 7003）；
+apex/通配符共用 `_acme-challenge.<apex>` 会放大；**建议主机级证书 + 定期扫残留或升级
+cert-manager**（残留 TXT 无安全影响、不影响续期，纯卫生问题）。
 
 ## 5. 后续发布流程（人话）
 

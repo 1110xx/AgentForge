@@ -70,7 +70,7 @@ Step 1-3 把上表差距**逐条闭环或降级为外部依赖**，历史表格�
 | --- | --- | --- |
 | G1 镜像发布管道 | ✅ **闭环且进化**：发布改为 main 推送 → CI `image-gate` 用 `GITHUB_TOKEN`（原生 `packages: write`）推 `ghcr.io/1110xx/agentforge/enterprise-agent-platform/*` + GitOps 回写 golden digest（bot 提交不递归触发 CI，无乒乓） | run 33619097309 四作业全绿；GitOps commit `a4e0352`；三包匿名 manifest inspect OK |
 | G2 生产 Secret | ✅ **生产形态完成**（Vault 为受管等价占位，契约不变）：ESO + ClusterSecretStore + 九键 round-trip + capability key 注入断言 | `scripts/bootstrap-prod-wiring.sh`、`test-prod-form.sh` G2 |
-| G3 域名/TLS | 🟡 **降级为外部依赖**：demo 两层 CA 全链已验；LE staging/prod ClusterIssuer 就绪（`deploy/prod/tls/letsencrypt-issuer.yaml`）——剩真实域名 + ACME 可达端点（外部购买决策项） | G3 断言、`docs/phase-5-supply-chain.md` §4 |
+| G3 域名/TLS | ✅ **真实出证闭环**（2026-09-03，DNS-01 不需公网端点）：域名 `tyx-lab.online`（用户已购，CF zone active）+ `letsencrypt-prod` ClusterIssuer（dns01/cloudflare）→ ingress-shim 自动改签 `agent-platform-api-tls` → 链验证到 ISRG Root X1 + 穿透 curl 严格 TLS `ssl_verify_result=0` 全 200 | `docs/phase-5-supply-chain.md` §4.1 |
 | G4 OIDC/多租户身份 | ✅ OIDC/HMAC **已实现并集群 e2e**（5 键契约、伪造 token 401 负向、真实 Run SUCCEEDED）；gVisor 保留为 on-prem 灰度项（计划见 `docs/production-onprem-topology.md` §6） | `docs/phase-4.5-security-decisions.md`、Step 1 |
 | G6 备份/DR 文档 | ✅ **文档 + 实跑**：WAL archive/PITR 双 target 精度、定时 basebackup/watchdog/TTL 全链路；runbooks 三份 + 演练 | `docs/phase-5-data-plane.md`、`deploy/runbooks/backup-and-ttl.md` |
 | G7 发布/回滚 | 🟡 发布侧自动化闭环（Step 3）；**集群内零停机升级/回滚演练**仍待真实多副本集群（G8 容量验证后） | `docs/production-onprem-topology.md` §7 |

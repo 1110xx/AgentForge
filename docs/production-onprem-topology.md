@@ -89,8 +89,9 @@
 - 红线：平台无「内置管理员」回退（架构边界）；capability key 由 Vault 提供，**代码只信 env 注入**。
 
 ### 4.6 cert-manager / TLS
-- 现状：demo 两层 CA 全链已验（root/api 200、leaf SAN、链可验、SSE off）；`deploy/prod/values.yaml` golden 已是 `clusterIssuer: letsencrypt-prod`。
-- 生产：应用 `deploy/prod/tls/letsencrypt-issuer.yaml`（填 ACME email；HTTP-01 需公网可达端点，或 DNS-01 用私有集群）→ 等域名（**外部付费项，待用户决策**）。
+- 现状：demo 两层 CA 全链已验；**真实 LE 出证已闭环（2026-09-03，DNS-01 + Cloudflare，kind 内无公网端点即可签）**：`letsencrypt-prod` ClusterIssuer（`deploy/prod/tls/letsencrypt-issuer.yaml`）→ 单主机证书 ~100s READY → ingress-shim 自动改签 `agent-platform-api-tls`（host `agent-platform.tyx-lab.online`）→ 链验证 leaf←YR1←Root YR(cross)←ISRG Root X1 → 穿透 curl 严格 TLS 全 200。证据与复现：`docs/phase-5-supply-chain.md` §4.1。
+- 已知瑕疵：v1.15.3 CF cleanup 偶留 `_acme-challenge` TXT（签发/续期不受影响），定期扫或升级 cert-manager。
+- 生产：**DNS-01 是私有集群首选**（免公网入站）；HTTP-01 仅当有公网端点。等真实公网部署时把 ingress host 指向最终域名即可。
 - 内部流量：ingress-nginx 双向 TLS / 服务网格（可选后续，不阻塞上线）。
 
 ### 4.7 观测
@@ -135,10 +136,10 @@
 
 | 步骤 | 动作 | 验收 |
 | --- | --- | --- |
-| 0 前置 | 域名（外部购买项）、≥2 依赖机×2 工作机、块盘与加密、DNS | 节点 ready；etcd/audit 检查过 |
+| 0 前置 | 域名（外部购买项）→ **已购 `tyx-lab.online`**；≥2 依赖机×2 工作机、块盘与加密、DNS | 节点 ready；etcd/audit 检查过；CF zone active |
 | 1 依赖 | PG 3 节点 Patroni + archive 通 MinIO；NATS 3 节点；MinIO erasure；Vault Raft | 三组件健康端点绿 |
 | 2 Secret | ESO + ClusterSecretStore + 九键 | `scripts/bootstrap-prod-wiring.sh` 同款 round-trip 断言通过 |
-| 3 发布 | helm upgrade golden（GHCR digest + LE issuer 切 prod） | `scripts/check-k8s.sh` prod profile 全绿 + `helm template` 静态门 |
+| 3 发布 | helm upgrade golden（GHCR digest + LE issuer 切 prod） | `scripts/check-k8s.sh` prod profile 全绿 + `helm template` 静态门；**LE 真实出证已在 kind 实证（§4.6）** |
 | 4 动门 | 生产形态 L3（真实域名 host） | `scripts/test-prod-form.sh`（host/issuer 覆写为真域名）全绿 |
 | 5 数据面 | 定时备份/watchdog/TTL 上线 + 参数化 | `scripts/apply-data-plane.sh` 等价体 + 首次真实 PITR 演练 PASS |
 | 6 观测 | observability 栈持久化 | `scripts/test-observability.sh` + 告警触达演练 |
