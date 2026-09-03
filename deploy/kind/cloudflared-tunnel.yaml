@@ -1,0 +1,50 @@
+# Cloudflared named-tunnel Deployment (form B: tunnel resident in kind).
+# ConfigMap `cloudflared-config` (config.yml) + Secret `cloudflared-credentials`
+# (credentials.json) are created by scripts/apply-cloudflare-tunnel.sh — never
+# commit credentials. Origin is plain http to the in-cluster ingress-nginx
+# (CF proxy default = Flexible); see deploy/runbooks/cloudflare-tunnel-demo.md.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared-tunnel
+  namespace: agent-platform-control
+  labels:
+    app.kubernetes.io/name: cloudflared-tunnel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflared-tunnel
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cloudflared-tunnel
+    spec:
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:2026.8.3
+          args: ["tunnel", "--config", "/etc/cloudflared/config.yml", "run"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/cloudflared
+              readOnly: true
+            - name: credentials
+              mountPath: /etc/cloudflared/credentials
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: cloudflared-config
+        - name: credentials
+          secret:
+            secretName: cloudflared-credentials
+            items:
+              - key: credentials.json
+                path: credentials.json
