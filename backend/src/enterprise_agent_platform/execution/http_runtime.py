@@ -374,6 +374,7 @@ class HttpRuntimeClient:
                     "workspace_path": str(kwargs.get("workspace_path", "")),
                     "logical_name": str(kwargs.get("logical_name", "")),
                     "classification": str(kwargs.get("classification", "general")),
+                    "content_b64": str(kwargs.get("content_b64", "") or ""),
                 },
                 token=self._context.runtime_token,
             )

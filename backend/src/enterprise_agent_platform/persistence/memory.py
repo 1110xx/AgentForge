@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from enterprise_agent_platform.contracts.enums import (
+    ArtifactVersionState,
     AttemptState,
     CheckpointState,
     ExecutionLeaseState,
@@ -49,7 +50,7 @@ from .invariants import (
     validate_new_effect,
     validate_new_outbox,
 )
-from .protocol import PlatformError, PlatformTransaction
+from .protocol import PlatformError, PlatformTransaction, RunArtifactView
 
 RunKey = tuple[str, str]
 AuthorizationSnapshotKey = tuple[str, str]
@@ -104,6 +105,7 @@ class _State:
     workspace_snapshots: dict[SnapshotKey, WorkspaceSnapshotRecord] = field(default_factory=dict)
     artifacts: dict[ArtifactKey, ArtifactRecord] = field(default_factory=dict)
     artifact_versions: dict[ArtifactVersionKey, ArtifactVersionRecord] = field(default_factory=dict)
+    artifact_content: dict[ArtifactVersionKey, bytes] = field(default_factory=dict)
     ui_surfaces: dict[UiSurfaceKey, UiSurfaceRecord] = field(default_factory=dict)
     ui_surface_revisions: dict[UiSurfaceRevisionKey, UiSurfaceRevisionRecord] = field(
         default_factory=dict
@@ -309,6 +311,38 @@ class _MemoryTransaction:
             return _detached(self._state.artifact_versions[(tenant_id, artifact_id, version)])
         except KeyError as error:
             raise _not_found("artifact version") from error
+
+    async def get_artifact_content(
+        self, tenant_id: str, artifact_id: str, version: int
+    ) -> bytes:
+        try:
+            return self._state.artifact_content[(tenant_id, artifact_id, version)]
+        except KeyError as error:
+            raise _not_found("artifact content") from error
+
+    async def list_ready_artifacts_for_run(
+        self, tenant_id: str, run_id: str
+    ) -> tuple[RunArtifactView, ...]:
+        views: list[RunArtifactView] = []
+        for artifact in self._state.artifacts.values():
+            if artifact.tenant_id != tenant_id or artifact.run_id != run_id:
+                continue
+            if artifact.state != "ACTIVE" or artifact.current_version is None:
+                continue
+            version_record = self._state.artifact_versions.get(
+                (tenant_id, artifact.artifact_id, artifact.current_version)
+            )
+            if version_record is None or version_record.state is not ArtifactVersionState.READY:
+                continue
+            views.append(
+                RunArtifactView(
+                    artifact_id=artifact.artifact_id,
+                    logical_name=artifact.logical_name,
+                    media_type=version_record.media_type,
+                    version=artifact.current_version,
+                )
+            )
+        return tuple(sorted(views, key=lambda item: item.artifact_id))
 
     async def get_ui_surface(self, tenant_id: str, surface_id: str) -> UiSurfaceRecord | None:
         record = self._state.ui_surfaces.get((tenant_id, surface_id))
@@ -765,6 +799,46 @@ class _MemoryTransaction:
         ):
             raise PlatformError("INTEGRITY_VIOLATION", "invalid artifact version relation")
         self._state.artifact_versions[key] = _detached(record)
+
+    async def finalize_staged_artifact(
+        self,
+        *,
+        tenant_id: str,
+        artifact_id: str,
+        version: int,
+        object_uri: str,
+        checksum: str,
+        size_bytes: int,
+        media_type: str,
+        scanner_version: str,
+        content: bytes,
+    ) -> None:
+        """Move a run-published Artifact version STAGING → READY (SDD §13.4)."""
+        self._fault("finalize_staged_artifact")
+        key = (tenant_id, artifact_id, version)
+        current = self._state.artifact_versions.get(key)
+        artifact = self._state.artifacts.get((tenant_id, artifact_id))
+        if current is None or artifact is None:
+            raise _not_found("artifact version")
+        if current.state is not ArtifactVersionState.STAGING:
+            raise PlatformError(
+                "VERSION_CONFLICT", "artifact version is not in STAGING state"
+            )
+        now = datetime.now(UTC)
+        self._state.artifact_versions[key] = replace(
+            current,
+            state=ArtifactVersionState.READY,
+            state_version=current.state_version + 1,
+            object_uri=object_uri,
+            checksum=checksum,
+            size_bytes=size_bytes,
+            media_type=media_type,
+            ready_at=now,
+        )
+        self._state.artifacts[(tenant_id, artifact_id)] = replace(
+            artifact, current_version=version, updated_at=now
+        )
+        self._state.artifact_content[key] = content
 
     async def insert_ui_surface(self, record: UiSurfaceRecord) -> None:
         self._fault("insert_ui_surface")
@@ -1496,6 +1570,40 @@ class InMemoryPlatformStore:
                 return _detached(self._state.artifact_versions[(tenant_id, artifact_id, version)])
             except KeyError as error:
                 raise _not_found("artifact version") from error
+    async def get_artifact_content(
+        self, tenant_id: str, artifact_id: str, version: int
+    ) -> bytes:
+        async with self._lock:
+            try:
+                return self._state.artifact_content[(tenant_id, artifact_id, version)]
+            except KeyError as error:
+                raise _not_found("artifact content") from error
+
+    async def list_ready_artifacts_for_run(
+        self, tenant_id: str, run_id: str
+    ) -> tuple[RunArtifactView, ...]:
+        async with self._lock:
+            views: list[RunArtifactView] = []
+            for artifact in self._state.artifacts.values():
+                if artifact.tenant_id != tenant_id or artifact.run_id != run_id:
+                    continue
+                if artifact.state != "ACTIVE" or artifact.current_version is None:
+                    continue
+                version_record = self._state.artifact_versions.get(
+                    (tenant_id, artifact.artifact_id, artifact.current_version)
+                )
+                if version_record is None or version_record.state is not ArtifactVersionState.READY:
+                    continue
+                views.append(
+                    RunArtifactView(
+                        artifact_id=artifact.artifact_id,
+                        logical_name=artifact.logical_name,
+                        media_type=version_record.media_type,
+                        version=artifact.current_version,
+                    )
+                )
+            return tuple(sorted(views, key=lambda item: item.artifact_id))
+
 
     async def get_ui_surface(self, tenant_id: str, surface_id: str) -> UiSurfaceRecord | None:
         async with self._lock:

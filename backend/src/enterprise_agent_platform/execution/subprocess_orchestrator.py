@@ -20,6 +20,8 @@ Orchestrator → Runtime(Pod) shape without Docker or cluster I/O::
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import hashlib
 import json
 import logging
@@ -876,12 +878,150 @@ class SubprocessOrchestrator:
             "Artifact recorded: run=%s artifact=%s logical_name=%s classification=%s",
             run.run_id, artifact_id, logical_name, classification,
         )
+        content_status = "no-content"
+        content_b64 = str(kwargs.get("content_b64", "") or "")
+        if content_b64:
+            content_status = await self._finalize_artifact_with_content(
+                ticket,
+                ctx,
+                artifact_id=artifact_id,
+                run_id=run.run_id,
+                logical_name=logical_name,
+                classification=classification,
+                content_b64=content_b64,
+                workspace_path=workspace_path,
+            )
         return {
             "status": "accepted",
             "artifact_id": artifact_id,
             "logical_name": logical_name,
             "version": 1,
+            "content_status": content_status,
         }
+
+    # ── M6-B: run-published artifact content finalize (SDD §13.4) ──────
+
+    _MAX_ARTIFACT_CONTENT_BYTES = 1 << 20  # 1 MiB transport bound
+
+    @staticmethod
+    def _artifact_media_type(logical_name: str) -> str:
+        suffix = logical_name.rsplit(".", 1)[-1].lower() if "." in logical_name else ""
+        return {
+            "md": "text/markdown",
+            "txt": "text/plain",
+            "html": "text/html",
+            "htm": "text/html",
+            "json": "application/json",
+            "csv": "text/csv",
+        }.get(suffix, "application/octet-stream")
+
+    async def _finalize_artifact_with_content(
+        self,
+        ticket: DispatchTicket,
+        ctx: RequestContext,
+        *,
+        artifact_id: str,
+        run_id: str,
+        logical_name: str,
+        classification: str,
+        content_b64: str,
+        workspace_path: str,
+    ) -> str:
+        """Scan-clean and finalize a staged run artifact (STAGING → READY).
+
+        The child ships the workspace file bytes in the publish op; this
+        mirrors the reference scanner (always clean) and persists the immutable
+        blob under the version so the run view lists the product and a content
+        route can serve it (feedback ②: conclusion AND product visible).
+        """
+        try:
+            content = base64.b64decode(content_b64, validate=True)
+        except (ValueError, TypeError, binascii.Error):
+            raise PlatformError(
+                "INVALID_ARTIFACT_CONTENT", "artifact content is not valid base64"
+            )
+        if not content:
+            raise PlatformError(
+                "INVALID_ARTIFACT_CONTENT", "artifact content is empty"
+            )
+        if len(content) > self._MAX_ARTIFACT_CONTENT_BYTES:
+            raise PlatformError(
+                "ARTIFACT_CONTENT_TOO_LARGE",
+                f"artifact content exceeds {self._MAX_ARTIFACT_CONTENT_BYTES} bytes",
+            )
+        digest = hashlib.sha256(content).hexdigest()
+        media_type = self._artifact_media_type(logical_name)
+        now = datetime.now(UTC)
+        async with self._store.transaction() as tx:
+            run = await tx.lock_run(ticket.tenant_id, run_id)
+            if run.status not in {RunState.QUEUED, RunState.RUNNING}:
+                return "rejected-run-terminal"
+            await tx.finalize_staged_artifact(
+                tenant_id=ticket.tenant_id,
+                artifact_id=artifact_id,
+                version=1,
+                object_uri=f"object://artifact/{ticket.tenant_id}/{artifact_id}/v1",
+                checksum=f"sha256:{digest}",
+                size_bytes=len(content),
+                media_type=media_type,
+                scanner_version="reference-scanner/v1",
+                content=content,
+            )
+            artifact_event = EnterpriseEventEnvelope(
+                schema_version="enterprise-event/v1",
+                event_id=self._store.new_id("event"),
+                tenant_id=ticket.tenant_id,
+                run_id=run_id,
+                event_seq=run.last_event_seq + 1,
+                event_type=EventType.ARTIFACT_VERSION,
+                occurred_at=now,
+                producer_service="subprocess-orchestrator",
+                payload_schema="artifact-version/v1",
+                payload=ArtifactVersionPayload(
+                    kind="artifact.version",
+                    artifact_id=artifact_id,
+                    run_id=run_id,
+                    logical_name=logical_name,
+                    classification=classification,
+                    version=1,
+                    state="READY",
+                ),
+                attempt_id=ticket.attempt_id,
+                trace_id=ctx.trace_id,
+            )
+            await tx.append_event(artifact_event, run.last_event_seq)
+            await tx.insert_outbox(
+                OutboxMessageRecord(
+                    tenant_id=ticket.tenant_id,
+                    message_id=self._store.new_id("outbox"),
+                    run_id=run_id,
+                    topic="artifact.ready",
+                    payload={
+                        "artifact_id": artifact_id,
+                        "version": 1,
+                        "checksum": f"sha256:{digest}",
+                        "size_bytes": len(content),
+                    },
+                    event_id=artifact_event.event_id,
+                    aggregate_version=run.version + 1,
+                    created_at=now,
+                    published_at=None,
+                )
+            )
+            await tx.replace_run_cas(
+                replace(
+                    run,
+                    version=run.version + 1,
+                    last_event_seq=artifact_event.event_seq,
+                    updated_at=now,
+                ),
+                run.version,
+            )
+        logger.info(
+            "Artifact finalized READY: run=%s artifact=%s size=%s media=%s",
+            run_id, artifact_id, len(content), media_type,
+        )
+        return "ready"
 
     async def _op_propose_action(
         self,

@@ -61,10 +61,11 @@ from .invariants import (
     validate_new_effect,
     validate_new_outbox,
 )
-from .protocol import PlatformError, PlatformTransaction
+from .protocol import PlatformError, PlatformTransaction, RunArtifactView
 from .tables import (
     action_proposal_table,
     approval_request_table,
+    artifact_content_table,
     artifact_table,
     artifact_version_table,
     attempt_table,
@@ -711,6 +712,68 @@ class SqlAlchemyPlatformTransaction:
             _artifact_version,
         )
 
+    async def get_artifact_content(
+        self, tenant_id: str, artifact_id: str, version: int
+    ) -> bytes:
+        row = (
+            await self._session.execute(
+                select(artifact_content_table.c.content).where(
+                    artifact_content_table.c.tenant_id == tenant_id,
+                    artifact_content_table.c.artifact_id == artifact_id,
+                    artifact_content_table.c.version == version,
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            raise _not_found("artifact content")
+        return bytes(row)
+
+    async def list_ready_artifacts_for_run(
+        self, tenant_id: str, run_id: str
+    ) -> tuple[RunArtifactView, ...]:
+        """Ready (READY version) artifacts produced by a run, newest first."""
+        masters = (
+            await self._session.execute(
+                select(
+                    artifact_table.c.artifact_id,
+                    artifact_table.c.logical_name,
+                    artifact_table.c.current_version,
+                ).where(
+                    artifact_table.c.tenant_id == tenant_id,
+                    artifact_table.c.run_id == run_id,
+                    artifact_table.c.state == "ACTIVE",
+                    artifact_table.c.current_version.is_not(None),
+                )
+            )
+        ).all()
+        views: list[RunArtifactView] = []
+        for master in masters:
+            if master.current_version is None:
+                continue
+            version_row = (
+                await self._session.execute(
+                    select(
+                        artifact_version_table.c.media_type,
+                        artifact_version_table.c.state,
+                    ).where(
+                        artifact_version_table.c.tenant_id == tenant_id,
+                        artifact_version_table.c.artifact_id == master.artifact_id,
+                        artifact_version_table.c.version == master.current_version,
+                    )
+                )
+            ).one_or_none()
+            if version_row is None or version_row.state != ArtifactVersionState.READY.value:
+                continue
+            views.append(
+                RunArtifactView(
+                    artifact_id=master.artifact_id,
+                    logical_name=master.logical_name,
+                    media_type=version_row.media_type,
+                    version=master.current_version,
+                )
+            )
+        return tuple(sorted(views, key=lambda item: item.artifact_id))
+
     async def get_ui_surface(self, tenant_id: str, surface_id: str) -> UiSurfaceRecord | None:
         row = (
             await self._session.execute(
@@ -1333,6 +1396,77 @@ class SqlAlchemyPlatformTransaction:
             "artifact version",
         )
 
+    async def finalize_staged_artifact(
+        self,
+        *,
+        tenant_id: str,
+        artifact_id: str,
+        version: int,
+        object_uri: str,
+        checksum: str,
+        size_bytes: int,
+        media_type: str,
+        scanner_version: str,
+        content: bytes,
+    ) -> None:
+        """Move a run-published Artifact version STAGING → READY (SDD §13.4).
+
+        The version row is only finalizable while STAGING (FSM guard), then the
+        immutable content blob is stored 1:1 and the master's ``current_version``
+        is advanced so run views and downloads resolve the ready version.
+        """
+        del scanner_version  # reference scanner is always clean; kept in the row
+        now = await self.db_now()
+        updated = (
+            await self._session.execute(
+                update(artifact_version_table)
+                .where(
+                    artifact_version_table.c.tenant_id == tenant_id,
+                    artifact_version_table.c.artifact_id == artifact_id,
+                    artifact_version_table.c.version == version,
+                    artifact_version_table.c.state
+                    == ArtifactVersionState.STAGING.value,
+                )
+                .values(
+                    state=ArtifactVersionState.READY.value,
+                    state_version=artifact_version_table.c.state_version + 1,
+                    object_uri=object_uri,
+                    checksum=checksum,
+                    size_bytes=size_bytes,
+                    media_type=media_type,
+                    ready_at=now,
+                )
+            )
+        ).rowcount
+        if updated != 1:
+            raise PlatformError(
+                "VERSION_CONFLICT", "artifact version is not in STAGING state"
+            )
+        try:
+            await self._session.execute(
+                insert(artifact_content_table).values(
+                    tenant_id=tenant_id,
+                    artifact_id=artifact_id,
+                    version=version,
+                    size_bytes=size_bytes,
+                    checksum=checksum,
+                    content=content,
+                    created_at=now,
+                )
+            )
+        except IntegrityError as error:
+            raise PlatformError(
+                "INTEGRITY_VIOLATION", "artifact content is already stored"
+            ) from error
+        await self._session.execute(
+            update(artifact_table)
+            .where(
+                artifact_table.c.tenant_id == tenant_id,
+                artifact_table.c.artifact_id == artifact_id,
+            )
+            .values(current_version=version, updated_at=now)
+        )
+
     async def insert_ui_surface(self, record: UiSurfaceRecord) -> None:
         await self._insert(
             ui_surface_table,
@@ -1948,6 +2082,20 @@ class SqlAlchemyPlatformStore:
         self, tenant_id: str, artifact_id: str, version: int
     ) -> ArtifactVersionRecord:
         return await self._read(lambda tx: tx.get_artifact_version(tenant_id, artifact_id, version))
+
+    async def get_artifact_content(
+        self, tenant_id: str, artifact_id: str, version: int
+    ) -> bytes:
+        return await self._read(
+            lambda tx: tx.get_artifact_content(tenant_id, artifact_id, version)
+        )
+
+    async def list_ready_artifacts_for_run(
+        self, tenant_id: str, run_id: str
+    ) -> tuple[RunArtifactView, ...]:
+        return await self._read(
+            lambda tx: tx.list_ready_artifacts_for_run(tenant_id, run_id)
+        )
 
     async def get_ui_surface(self, tenant_id: str, surface_id: str) -> UiSurfaceRecord | None:
         return await self._read(lambda tx: tx.get_ui_surface(tenant_id, surface_id))

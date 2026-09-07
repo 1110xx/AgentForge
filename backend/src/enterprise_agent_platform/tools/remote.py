@@ -13,6 +13,7 @@ Supported tools:
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 from typing import Any, Protocol
 
@@ -31,6 +32,12 @@ from enterprise_agent_platform.execution.pipe_transport import (
 )
 
 log = logging.getLogger(__name__)
+
+# Transport bound for the workspace file bytes shipped with the publish op:
+# files at/under the bound ride along, larger ones fall back to metadata-only
+# publish (stays STAGING server-side, no content served) so a pathological
+# artifact can never bloat the op frame.
+ARTIFACT_CONTENT_MAX_BYTES = 1 << 20
 
 
 class TransportClient(Protocol):
@@ -90,6 +97,26 @@ async def _execute_remote_publish_artifact(
             content=[TextContent(text="Error: 'workspace_path' argument is required")],
         )
 
+    content_b64 = ""
+    content_note = ""
+
+    def _read_workspace_file() -> bytes:
+        with open(workspace_path, "rb") as handle:
+            return handle.read()
+
+    try:
+        content = await asyncio.to_thread(_read_workspace_file)
+        if len(content) <= ARTIFACT_CONTENT_MAX_BYTES and content:
+            content_b64 = base64.b64encode(content).decode("ascii")
+        else:
+            content_note = (
+                f" (content not uploaded: {'missing or empty' if not content else 'exceeds 1 MiB transport bound'})"
+            )
+    except FileNotFoundError:
+        content_note = " (content not uploaded: workspace file not found)"
+    except OSError as error:
+        content_note = f" (content not uploaded: {error})"
+
     try:
         response = await transport.request(
             OP_PUBLISH_ARTIFACT,
@@ -97,12 +124,22 @@ async def _execute_remote_publish_artifact(
                 "workspace_path": workspace_path,
                 "logical_name": logical_name,
                 "classification": args.get("classification", "general"),
+                "content_b64": content_b64,
             },
         )
         status = response.get("status", "accepted")
+        content_status = response.get("content_status", "") or ""
+        extra = f" (content={content_status})" if content_status else ""
         return AgentToolResult(
-            content=[TextContent(text=f"Artifact publish {status}: {logical_name}")],
-            details={"status": status, "logical_name": logical_name},
+            content=[
+                TextContent(
+                    text=f"Artifact publish {status}{content_note}{extra}: {logical_name}"
+                )
+            ],
+            details={
+                "status": status,
+                "logical_name": logical_name,
+            },
         )
     except Exception as exc:  # noqa: BLE001 - surfaced as tool error result
         return AgentToolResult(

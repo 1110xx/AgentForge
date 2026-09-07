@@ -337,6 +337,7 @@ class _RuntimeOpsAdapter(RuntimeOperationsPort):
             kwargs["workspace_path"] = getattr(request, "workspace_path", "")
             kwargs["logical_name"] = getattr(request, "logical_name", "")
             kwargs["classification"] = getattr(request, "classification", "general")
+            kwargs["content_b64"] = getattr(request, "content_b64", "")
         if op == OP_PROPOSE_ACTION:
             kwargs["action_ref"] = getattr(request, "action_ref", "")
             kwargs["canonical_payload_ref"] = getattr(request, "canonical_payload_ref", "")

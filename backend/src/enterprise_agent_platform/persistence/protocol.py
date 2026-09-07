@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import AbstractAsyncContextManager
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
@@ -41,6 +42,16 @@ class PlatformError(RuntimeError):
         super().__init__(f"{code}: {message}")
 
 
+@dataclass(frozen=True, slots=True)
+class RunArtifactView:
+    """Ready-to-serve run artifact projection (SDD §13.4 M6-B)."""
+
+    artifact_id: str
+    logical_name: str
+    media_type: str
+    version: int
+
+
 @runtime_checkable
 class PlatformTransaction(Protocol):
     async def db_now(self) -> datetime: ...
@@ -68,6 +79,12 @@ class PlatformTransaction(Protocol):
     async def get_artifact_version(
         self, tenant_id: str, artifact_id: str, version: int
     ) -> ArtifactVersionRecord: ...
+    async def get_artifact_content(
+        self, tenant_id: str, artifact_id: str, version: int
+    ) -> bytes: ...
+    async def list_ready_artifacts_for_run(
+        self, tenant_id: str, run_id: str
+    ) -> tuple[RunArtifactView, ...]: ...
     async def get_ui_surface(self, tenant_id: str, surface_id: str) -> UiSurfaceRecord | None: ...
     async def get_ui_surface_revision(
         self, tenant_id: str, surface_id: str, revision: int
@@ -143,6 +160,19 @@ class PlatformTransaction(Protocol):
     async def insert_workspace_snapshot(self, record: WorkspaceSnapshotRecord) -> None: ...
     async def insert_artifact(self, record: ArtifactRecord) -> None: ...
     async def insert_artifact_version(self, record: ArtifactVersionRecord) -> None: ...
+    async def finalize_staged_artifact(
+        self,
+        *,
+        tenant_id: str,
+        artifact_id: str,
+        version: int,
+        object_uri: str,
+        checksum: str,
+        size_bytes: int,
+        media_type: str,
+        scanner_version: str,
+        content: bytes,
+    ) -> None: ...
     async def insert_ui_surface(self, record: UiSurfaceRecord) -> None: ...
     async def insert_ui_surface_revision(self, record: UiSurfaceRevisionRecord) -> None: ...
     async def insert_action_proposal(self, record: ActionProposalRecord) -> None: ...

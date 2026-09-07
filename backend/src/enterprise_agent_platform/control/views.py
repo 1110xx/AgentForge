@@ -6,6 +6,7 @@ from itertools import pairwise
 
 from enterprise_agent_platform.contracts.events import EnterpriseEventEnvelope
 from enterprise_agent_platform.contracts.models import (
+    ArtifactSummary,
     AttemptHistoryPage,
     AttemptSummary,
     ExecutionUnitSummary,
@@ -21,7 +22,11 @@ from enterprise_agent_platform.domain.records import (
     RunRecord,
     UiSurfaceRecord,
 )
-from enterprise_agent_platform.persistence.protocol import PlatformError, PlatformStore
+from enterprise_agent_platform.persistence.protocol import (
+    PlatformError,
+    PlatformStore,
+    RunArtifactView,
+)
 
 PUBLIC_REASON = re.compile(r"[A-Z][A-Z0-9_]{0,127}$")
 
@@ -34,6 +39,7 @@ class _ProjectionFacts:
     surfaces: tuple[UiSurfaceRecord, ...]
     events: tuple[EnterpriseEventEnvelope, ...]
     retention_floor: int
+    artifacts: tuple[RunArtifactView, ...] = ()
 
 
 def _sanitized_reason(reason: str | None) -> str | None:
@@ -92,6 +98,15 @@ class RunQueryService:
                 )
                 for surface in sorted(facts.surfaces, key=lambda item: item.surface_id)
                 if surface.status == "ACTIVE" and surface.current_revision is not None
+            ),
+            artifacts=tuple(
+                ArtifactSummary(
+                    artifact_id=item.artifact_id,
+                    name=item.logical_name,
+                    media_type=item.media_type,
+                    version=item.version,
+                )
+                for item in facts.artifacts
             ),
             watermark=run.last_event_seq,
         )
@@ -199,6 +214,7 @@ class RunQueryService:
             surfaces = await tx.list_ui_surfaces_for_run(tenant_id, run_id)
             events = await tx.list_events_for_run(tenant_id, run_id)
             retention_floor = await tx.get_event_retention_floor(tenant_id, run_id)
+            artifacts = await tx.list_ready_artifacts_for_run(tenant_id, run_id)
         ordered_events = tuple(sorted(events, key=lambda item: item.event_seq))
         if any(event.tenant_id != tenant_id or event.run_id != run_id for event in ordered_events):
             raise PlatformError("INTEGRITY_VIOLATION", "projection contains foreign events")
@@ -229,4 +245,5 @@ class RunQueryService:
             surfaces=surfaces,
             events=ordered_events,
             retention_floor=retention_floor,
+            artifacts=artifacts,
         )

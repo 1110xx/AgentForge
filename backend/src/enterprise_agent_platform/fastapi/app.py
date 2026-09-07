@@ -89,6 +89,8 @@ def _platform_status(error: PlatformError) -> int:
         return 409
     if error.code in {
         "INVALID_ARTIFACT_VERSION",
+        "INVALID_ARTIFACT_CONTENT",
+        "ARTIFACT_CONTENT_TOO_LARGE",
         "INVALID_EVENT_CURSOR",
         "INVALID_EVENT_LIMIT",
         "REQUEST_VALIDATION_FAILED",

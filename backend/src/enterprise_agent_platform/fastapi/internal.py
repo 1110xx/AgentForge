@@ -192,6 +192,11 @@ class PublishArtifactRequest(RuntimeSubjectRequest):
     workspace_path: Annotated[str, Field(min_length=1, max_length=1024)]
     logical_name: Annotated[str, Field(min_length=1, max_length=255)]
     classification: Annotated[str, Field(min_length=1, max_length=64)]
+    # M6-B (SDD §13.4): the child ships the workspace file bytes (base64, 1 MiB
+    # bound enforced server-side) so the Control Plane can scan-clean and
+    # finalize the staged version to READY; empty = legacy metadata-only
+    # publish (stays STAGING until a content-capable child uploads).
+    content_b64: Annotated[str, Field(max_length=1_400_000)] = ""
     execution_unit_id: Annotated[str, Field(min_length=1, max_length=255)] = ""
 
 
@@ -691,6 +696,8 @@ def _status(error: PlatformError) -> int:
         "EFFECT_PAYLOAD_MISMATCH",
         "RECONCILIATION_EVIDENCE_INVALID",
         "INVALID_EVENT_PAYLOAD",
+        "INVALID_ARTIFACT_CONTENT",
+        "ARTIFACT_CONTENT_TOO_LARGE",
     }:
         return 422
     if error.code in {"INVALID_EVENT_TYPE", "EVENT_TYPE_NOT_ALLOWED"}:

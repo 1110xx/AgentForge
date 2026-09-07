@@ -3,6 +3,7 @@ import hashlib
 import json
 import re
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, Path, Query, Request, Response
 from fastapi.responses import StreamingResponse
@@ -106,6 +107,13 @@ def _stream_cursor(header: str | None, query: str | None) -> int:
             "REQUEST_VALIDATION_FAILED", "event cursor must be a non-negative integer"
         )
     return int(raw)
+
+
+def _download_filename(value: str) -> str:
+    """Sanitize a logical artifact name for a Content-Disposition filename."""
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", (value or "artifact"))
+    name = name.strip("._")
+    return name or "artifact"
 
 
 def create_router(container: AgentPlatformContainer) -> APIRouter:
@@ -505,6 +513,56 @@ def create_agent_platform_router(container: AgentPlatformContainer) -> APIRouter
                 artifact_id=artifact_id,
                 version=version,
             ),
+        )
+
+    @router.get(
+        "/runs/{run_id}/artifacts/{artifact_id}/versions/{version}/content",
+        operation_id="getRunArtifactContent",
+        responses=_error_responses(401, 403, 404, 422, 500),
+    )
+    async def get_run_artifact_content(
+        run_id: str,
+        artifact_id: str,
+        version: Annotated[int, Path(ge=1)],
+        ctx: Annotated[RequestContext, Depends(context)],
+    ) -> Response:
+        """Download a run-published artifact's ready version content (SDD §13.4).
+
+        The child ships the workspace file bytes at publish time; the Control
+        Plane scan-cleans and finalizes the version to READY, and this route
+        serves the stored blob to any principal with ``runs:read`` (same scope
+        as the run detail). Returns 404 when the version is not READY.
+        """
+        require_scope(ctx, "runs:read")
+        logical_name: str | None = None
+        media_type = "application/octet-stream"
+        content = b""
+        async with container.store.transaction() as tx:
+            ready = await tx.list_ready_artifacts_for_run(ctx.tenant_id, run_id)
+            matched = next(
+                (
+                    item
+                    for item in ready
+                    if item.artifact_id == artifact_id and item.version == version
+                ),
+                None,
+            )
+            if matched is None:
+                raise PlatformError(
+                    "NOT_FOUND", "artifact version is not ready for this run"
+                )
+            logical_name = matched.logical_name
+            media_type = matched.media_type or media_type
+            content = await tx.get_artifact_content(
+                ctx.tenant_id, artifact_id, version
+            )
+        filename = _download_filename(logical_name or "artifact")
+        return Response(
+            content=content,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"
+            },
         )
 
     return router

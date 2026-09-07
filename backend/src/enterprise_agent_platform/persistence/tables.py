@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    LargeBinary,
     MetaData,
     Numeric,
     PrimaryKeyConstraint,
@@ -626,6 +627,28 @@ artifact_version_table = Table(
         "(source_attempt_id IS NULL AND generation IS NULL) OR "
         "(source_attempt_id IS NOT NULL AND generation IS NOT NULL)",
         name="ck_artifact_version_source_attempt_generation_pair",
+    ),
+)
+
+artifact_content_table = Table(
+    "artifact_content",
+    metadata,
+    _tenant(),
+    Column("artifact_id", ID, nullable=False),
+    Column("version", Integer, nullable=False),
+    Column("size_bytes", BigInteger, nullable=False),
+    Column("checksum", String(128), nullable=False),
+    Column("content", LargeBinary, nullable=False),
+    Column("created_at", TIMESTAMP, nullable=False),
+    PrimaryKeyConstraint("tenant_id", "artifact_id", "version", name="pk_artifact_content"),
+    _fk(
+        ["tenant_id", "artifact_id", "version"],
+        [
+            "artifact_version.tenant_id",
+            "artifact_version.artifact_id",
+            "artifact_version.version",
+        ],
+        name="fk_artifact_content_tenant_artifact_version",
     ),
 )
 
@@ -1278,6 +1301,7 @@ idempotency_record_table = Table(
 __all__ = [
     "action_proposal_table",
     "approval_request_table",
+    "artifact_content_table",
     "artifact_table",
     "artifact_version_table",
     "attempt_step_table",
