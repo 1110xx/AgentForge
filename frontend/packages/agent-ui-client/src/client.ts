@@ -513,6 +513,51 @@ export class AgentPlatformClient {
     );
   }
 
+  /**
+   * GET .../content — authenticated download of a run-published artifact
+   * (SDD §13.4 M6-B). Unlike the signed download-authorization flow this
+   * route streams the stored blob directly to a principal with ``runs:read``;
+   * the caller materializes a Blob URL for the browser save dialog.
+   */
+  async getRunArtifactContent(
+    runId: string,
+    artifactId: string,
+    version: number,
+    options: RequestOptions = {},
+  ): Promise<{ blob: Blob; mediaType: string }> {
+    if (version < 1) {
+      throw new AgentPlatformProtocolError("artifact version must be >= 1");
+    }
+    const path = `/v1/runs/${encode(runId)}/artifacts/${encode(artifactId)}/versions/${version}/content`;
+    this.record({ kind: "request", method: "GET", path });
+    let response: Response;
+    try {
+      const init: RequestInit = {
+        method: "GET",
+        headers: {
+          Accept: "application/octet-stream",
+          Authorization: await this.authHeader(),
+        },
+      };
+      if (options.signal !== undefined) {
+        init.signal = options.signal;
+      }
+      response = await this.fetchImpl(this.url(path), init);
+    } catch (error) {
+      if (options.signal?.aborted === true) {
+        throw error;
+      }
+      throw new AgentPlatformNetworkError(`request to ${path} failed`, error);
+    }
+    this.record({ kind: "response", method: "GET", path, status: response.status });
+    if (!response.ok) {
+      throw await this.parseErrorResponse(response, "GET", path);
+    }
+    const mediaType =
+      response.headers.get("content-type") ?? "application/octet-stream";
+    return { blob: await response.blob(), mediaType };
+  }
+
   /** GET /v1/runs/{run_id}/events/stream — incremental SSE from a cursor.
    *
    * Yields durable ``EnterpriseEventEnvelope`` frames (replayable, SDD §11.4)

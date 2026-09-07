@@ -42,6 +42,7 @@ import {
   type SurfaceRenderContext,
 } from "@platform/agent-ui-catalog";
 import type { HostBridgeCapabilities } from "@platform/agent-ui-protocol/host";
+import type { ArtifactSummary } from "@platform/agent-ui-protocol";
 import { FollowupPanel } from "./followup-panel.js";
 import { LiveActivityPanel } from "./live-activity.js";
 
@@ -258,6 +259,43 @@ export function AgentPanel({ runId }: AgentPanelProps): ReactElement | null {
     [client, hostBridge, runId],
   );
 
+  // M6-B product downloads (SDD §13.4): authenticated blob fetch → browser
+  // save dialog. The artifact list comes from the RunView snapshot (READY
+  // versions only, server-finalized from the child-uploaded content).
+  const [downloading, setDownloading] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const handleProductDownload = useCallback(
+    async (artifact: ArtifactSummary): Promise<void> => {
+      const key = `${artifact.artifact_id}@${artifact.version}`;
+      setDownloading((previous) => new Set(previous).add(key));
+      try {
+        const { blob } = await client.getRunArtifactContent(
+          runId,
+          artifact.artifact_id,
+          artifact.version,
+        );
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = artifact.name || "artifact";
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      } catch (error) {
+        console.warn("artifact download failed", error);
+      } finally {
+        setDownloading((previous) => {
+          const next = new Set(previous);
+          next.delete(key);
+          return next;
+        });
+      }
+    },
+    [client, runId],
+  );
+
   // runEnded checks both the snapshot status (from REST) and the event-derived
   // runStatus (from SSE), because the store only ingests full snapshots on
   // resync, while run.status.changed SSE events update runStatus directly.
@@ -349,6 +387,62 @@ export function AgentPanel({ runId }: AgentPanelProps): ReactElement | null {
           })
         )}
       </div>
+
+      {/* M6-B run products (SDD §13.4): ready artifacts published by the
+          agent, downloaded through the authenticated content route. */}
+      {run.view.artifacts.length > 0 ? (
+        <div style={sectionStyle} data-agent-artifacts="run-artifacts">
+          <div
+            style={{
+              fontWeight: 600,
+              fontSize: "13px",
+              padding: "4px 0 2px",
+            }}
+          >
+            产物 · Artifacts
+          </div>
+          {run.view.artifacts.map((artifact) => {
+            const key = `${artifact.artifact_id}@${artifact.version}`;
+            const busy = downloading.has(key);
+            return (
+              <div
+                key={key}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "8px",
+                  padding: "6px 0",
+                  borderBottom: `1px solid ${EAP_THEME.border}`,
+                }}
+              >
+                <span
+                  title={`${artifact.name} (${artifact.media_type})`}
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {artifact.name}
+                </span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void handleProductDownload(artifact)}
+                  style={{
+                    ...badgeStyle,
+                    cursor: busy ? "wait" : "pointer",
+                    flexShrink: 0,
+                  }}
+                >
+                  {busy ? "下载中…" : "下载"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
 
       {/* Phase 3: FollowupPanel */}
       <FollowupPanel
