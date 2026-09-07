@@ -201,6 +201,34 @@ class ProposeActionRequest(RuntimeSubjectRequest):
     execution_unit_id: Annotated[str, Field(min_length=1, max_length=255)] = ""
 
 
+class RuntimeEventRequest(RuntimeSubjectRequest):
+    """Durable live-streaming bridge event emitted by the Pod runtime (SDD §13.3).
+
+    Mirrors the pipe ``OP_EMIT_EVENT`` frame: only ``tool.execution.started`` /
+    ``tool.execution.ended`` / ``agent.turn.completed`` are accepted (the
+    orchestrator bridge allowlist enforces it); the Control Plane appends to
+    the durable event log + Outbox so a reconnecting frontend can replay the
+    turn. ``payload`` is validated server-side against the event contract.
+    """
+
+    event_type: Annotated[str, Field(min_length=1, max_length=64)]
+    payload: dict[str, JsonValue] = Field(default_factory=dict)
+    # Full bootstrap subject is always signed by the Pod (see RestoreRequest).
+    execution_unit_id: Annotated[str, Field(min_length=1, max_length=255)] = ""
+
+
+class RuntimeChunkRequest(RuntimeSubjectRequest):
+    """Ephemeral stream-chunk emitted by the Pod runtime (SDD §13.3).
+
+    Never persisted: the Control Plane forwards it to the in-memory relay
+    drained by the SSE endpoint as ``stream-chunk`` frames; on disconnect it
+    is dropped (replay comes from the durable ``agent.turn.completed``).
+    """
+
+    chunk: dict[str, JsonValue] = Field(default_factory=dict)
+    execution_unit_id: Annotated[str, Field(min_length=1, max_length=255)] = ""
+
+
 class FinalCheckpointRequest(RestoreRequest):
     """Terminal checkpoint commit: runtime subject + lease facts + summary.
 
@@ -222,6 +250,9 @@ class FinalCheckpointRequest(RestoreRequest):
 class RuntimeFailureRequest(RuntimeSubjectRequest):
     reason_code: Annotated[str, Field(min_length=1, max_length=128)]
     retryable: bool
+    # Same full-subject discipline as the other runtime tool-op models: the
+    # Pod always signs execution_unit_id (see RestoreRequest).
+    execution_unit_id: Annotated[str, Field(min_length=1, max_length=255)] = ""
 
 
 class SurfacePublishRequest(RuntimeSubjectRequest):
@@ -478,6 +509,38 @@ def create_internal_router(container: InternalApiContainer) -> APIRouter:
         )
 
     @router.post(
+        "/runtime/events",
+        response_model=InternalOperationResult,
+        operation_id="emitRuntimeEvent",
+    )
+    async def emit_runtime_event(
+        command: RuntimeEventRequest,
+        authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+    ) -> dict[str, JsonValue]:
+        return await execute_runtime(
+            operation="emit_event",
+            scope="runtime:event",
+            command=command,
+            authorization=authorization,
+        )
+
+    @router.post(
+        "/runtime/chunks",
+        response_model=InternalOperationResult,
+        operation_id="streamRuntimeChunk",
+    )
+    async def stream_runtime_chunk(
+        command: RuntimeChunkRequest,
+        authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+    ) -> dict[str, JsonValue]:
+        return await execute_runtime(
+            operation="stream_chunk",
+            scope="runtime:chunk",
+            command=command,
+            authorization=authorization,
+        )
+
+    @router.post(
         "/runtime/checkpoints/final",
         response_model=InternalOperationResult,
         operation_id="commitRuntimeFinalCheckpoint",
@@ -627,8 +690,13 @@ def _status(error: PlatformError) -> int:
     if error.code in {
         "EFFECT_PAYLOAD_MISMATCH",
         "RECONCILIATION_EVIDENCE_INVALID",
+        "INVALID_EVENT_PAYLOAD",
     }:
         return 422
+    if error.code in {"INVALID_EVENT_TYPE", "EVENT_TYPE_NOT_ALLOWED"}:
+        return 400
+    if error.code in {"RUN_NOT_ACTIVE"}:
+        return 409
     if error.code == "NOT_FOUND":
         return 404
     return 500

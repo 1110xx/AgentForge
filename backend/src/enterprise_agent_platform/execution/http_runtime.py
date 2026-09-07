@@ -322,6 +322,36 @@ class HttpRuntimeClient:
             token=context.runtime_token,
         )
 
+    # ── Live-streaming bridge (SDD §13.3 A2) ──────────────────────────────
+
+    async def emit_event(
+        self, *, event_type: str, payload: dict[str, Any]
+    ) -> None:
+        """Report a durable bridge event to the Control Plane.
+
+        Only ``tool.execution.started`` / ``tool.execution.ended`` /
+        ``agent.turn.completed`` are accepted (server-side allowlist); the
+        Control Plane appends the validated envelope to the durable event log
+        + Outbox so a reconnecting frontend can replay the turn.
+        """
+        await self._post(
+            "/internal/v1/runtime/events",
+            {**self._subject(), "event_type": event_type, "payload": payload},
+            token=self._context.runtime_token,
+        )
+
+    async def stream_chunk(self, *, chunk: dict[str, Any]) -> None:
+        """Report an ephemeral stream chunk (never persisted).
+
+        The Control Plane pushes it into the in-memory relay drained by the
+        SSE endpoint as ``stream-chunk`` frames; on disconnect it is dropped.
+        """
+        await self._post(
+            "/internal/v1/runtime/chunks",
+            {**self._subject(), "chunk": chunk},
+            token=self._context.runtime_token,
+        )
+
     # ── TransportClient (remote tools) ───────────────────────────────────
 
     async def request(self, op: str, kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -455,6 +485,40 @@ def _make_http_stream_fn(client: HttpRuntimeClient) -> StreamFn:
 
 
 # ---------------------------------------------------------------------------
+# HttpAgentEventSink — live-streaming bridge over the Internal API (SDD §13.3)
+# ---------------------------------------------------------------------------
+
+
+class HttpAgentEventSink:
+    """HTTP transport implementation of the live-streaming bridge.
+
+    Same two-link semantics as ``PipeAgentEventSink`` (subprocess_runtime.py):
+
+    - durable link — ``emit_event``: tool.execution.started/ended and
+      agent.turn.completed go through ``POST /internal/v1/runtime/events``;
+      the Control Plane validates + appends them to the durable event log;
+    - ephemeral link — ``stream_chunk``: thinking/text deltas and tool
+      updates go through ``POST /internal/v1/runtime/chunks`` to the in-memory
+      relay; never persisted, dropped on disconnect.
+
+    Every post carries the full bootstrap subject (execution_unit_id
+    included) signed by the Pod; the token comes from the client's bound
+    RuntimeContext, which every heartbeat/op refreshes (rolling expiry).
+    """
+
+    def __init__(self, client: HttpRuntimeClient) -> None:
+        self._client = client
+
+    async def emit_event(
+        self, *, event_type: str, payload: dict[str, object]
+    ) -> None:
+        await self._client.emit_event(event_type=event_type, payload=payload)
+
+    async def stream_chunk(self, *, chunk: dict[str, object]) -> None:
+        await self._client.stream_chunk(chunk=chunk)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -488,6 +552,12 @@ async def _main() -> int:
             remote_tools=create_remote_tools(client),
         )
         runtime.set_stream_fn(_make_http_stream_fn(client))
+        # A2 live-streaming bridge: without a sink the HTTP child (unlike the
+        # in-process/pipe path) never reports turns/tools, so the public event
+        # log stays lifecycle-only and the frontend activity panel is empty
+        # during live runs (SDD §13.3). Attaching the sink makes the Pod emit
+        # durable bridge events + ephemeral chunks through the Internal API.
+        runtime.set_event_sink(HttpAgentEventSink(client))
         return await runtime.run(attempt_id=attempt_id, generation=generation)
     except RuntimeError as error:
         logger.error("http runtime failure: %s", error)

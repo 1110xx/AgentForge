@@ -95,6 +95,19 @@ def _platform_status(error: PlatformError) -> int:
         "UI_ACTION_NOT_SUPPORTED",
     }:
         return 422
+    # Live-streaming bridge rejections (SDD §13.3): a Pod that emits an
+    # unknown/disallowed event type or a payload that fails its contract is a
+    # protocol violation (4xx), not a server fault; emitting on a non-active
+    # run is a state conflict (409).
+    if error.code in {
+        "INVALID_EVENT_TYPE",
+        "EVENT_TYPE_NOT_ALLOWED",
+    }:
+        return 400
+    if error.code == "INVALID_EVENT_PAYLOAD":
+        return 422
+    if error.code == "RUN_NOT_ACTIVE":
+        return 409
     if error.code in {
         "SESSION_ALREADY_OPEN",
         "SESSION_CLOSED",
@@ -335,6 +348,10 @@ def create_agent_platform_app(container: AgentPlatformContainer) -> FastAPI:
                 control=container.control,
                 run_sessions=container.run_sessions,
                 resource_resolver=container.resource_resolver,
+                # Share the same in-memory relay the public SSE endpoint drains
+                # so live HTTP-runtime stream-chunks reach the frontend (SDD
+                # §13.3 A2); the underlying instance implements both sides.
+                chunk_relay=container.chunk_streamer,
             )
         )
     )

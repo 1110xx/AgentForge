@@ -34,6 +34,7 @@ from enterprise_agent_platform.execution.pipe_transport import (
     OP_BOOTSTRAP,
     OP_COMMIT_CHECKPOINT,
     OP_COMMIT_FINAL,
+    OP_EMIT_EVENT,
     OP_HEARTBEAT,
     OP_MODEL_CALL,
     OP_PROPOSE_ACTION,
@@ -41,6 +42,7 @@ from enterprise_agent_platform.execution.pipe_transport import (
     OP_READ_TOOL,
     OP_RECORD_FAILURE,
     OP_RESTORE,
+    OP_STREAM_CHUNK,
 )
 from enterprise_agent_platform.execution.subprocess_orchestrator import (
     SubprocessOrchestrator,
@@ -220,6 +222,8 @@ class _RuntimeOpsAdapter(RuntimeOperationsPort):
         "commit_final_checkpoint": OP_COMMIT_FINAL,
         "record_failure": OP_RECORD_FAILURE,
         "model_call": OP_MODEL_CALL,
+        "emit_event": OP_EMIT_EVENT,
+        "stream_chunk": OP_STREAM_CHUNK,
     }
 
     # Ops whose full result payload the Pod runtime needs (restore carries the
@@ -238,6 +242,7 @@ class _RuntimeOpsAdapter(RuntimeOperationsPort):
         capability_key: str | None = None,
         run_sessions=None,
         resource_resolver=None,
+        chunk_relay=None,
     ) -> None:
         self._capability_key = (
             capability_key if capability_key is not None else resolve_capability_key()
@@ -248,6 +253,7 @@ class _RuntimeOpsAdapter(RuntimeOperationsPort):
             capability_key=self._capability_key,
             run_sessions=run_sessions,
             resource_resolver=resource_resolver,
+            chunk_relay=chunk_relay,
         )
         self._store = store
 
@@ -344,6 +350,11 @@ class _RuntimeOpsAdapter(RuntimeOperationsPort):
             kwargs["messages"] = getattr(request, "messages", [])
             kwargs["tools"] = getattr(request, "tools", [])
             kwargs["options"] = getattr(request, "options", {})
+        if op == OP_EMIT_EVENT:
+            kwargs["event_type"] = getattr(request, "event_type", "")
+            kwargs["payload"] = getattr(request, "payload", {})
+        if op == OP_STREAM_CHUNK:
+            kwargs["chunk"] = getattr(request, "chunk", {})
         result = await self._orchestrator._handle(ticket, ctx, op, kwargs)
         if op in _RuntimeOpsAdapter._PASSTHROUGH_OPS:
             # Full payload for restore / heartbeat / read_tool / model_call.
@@ -441,6 +452,7 @@ def build_internal_container(
     capability_key: str | None = None,
     run_sessions=None,
     resource_resolver=None,
+    chunk_relay=None,
 ) -> InternalApiContainer:
     """Build the Internal Runtime API container from main-app services.
 
@@ -452,6 +464,10 @@ def build_internal_container(
     ``capability_key`` seeds the HMAC Runtime capability signing; when omitted
     it resolves from ``AGENT_PLATFORM_CAPABILITY_KEY`` (SecretStore injection,
     demo fallback documented in security/runtime_tokens.py).
+    ``chunk_relay`` is the ephemeral stream-chunk sink (SDD §13.3): pass the
+    same in-memory relay the SSE endpoint drains so live HTTP-runtime chunks
+    reach the frontend; None disables the ephemeral link (durable events are
+    unaffected).
     """
     resolved_key = capability_key if capability_key is not None else resolve_capability_key()
     return InternalApiContainer(
@@ -468,10 +484,12 @@ def build_internal_container(
                 capability_key=resolved_key,
                 run_sessions=run_sessions,
                 resource_resolver=resource_resolver,
+                chunk_relay=chunk_relay,
             ),
             capability_key=resolved_key,
             run_sessions=run_sessions,
             resource_resolver=resource_resolver,
+            chunk_relay=chunk_relay,
         ),
         surface_publisher=surface_publisher,
         service_identities=_ServiceIdentityAdapter(),
