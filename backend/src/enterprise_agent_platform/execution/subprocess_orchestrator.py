@@ -714,16 +714,32 @@ class SubprocessOrchestrator:
         kwargs: dict[str, Any],
     ) -> dict[str, Any]:
         resource_ref = str(kwargs.get("arguments_ref", ""))
+        tool_name = str(kwargs.get("tool_name", ""))
         if self._resource_resolver is None:
             return {
-                "tool_name": kwargs.get("tool_name", ""),
+                "tool_name": tool_name,
                 "resource_ref": resource_ref,
                 "resolved": None,
                 "content": f"[demo] proxied read of {resource_ref} (no resolver)",
             }
+        # Business resolvers may render agent-visible content (e.g. the
+        # incident:// vertical serves real ticket/log/metric payloads). The
+        # renderer is optional and non-fatal: it returns an error payload for
+        # unknown references instead of raising, so a data gap surfaces to the
+        # Agent as readable text rather than failing the Attempt.
+        read_content = getattr(self._resource_resolver, "read_content", None)
+        if callable(read_content):
+            rendered = await read_content(resource_ref)
+            if isinstance(rendered, str):
+                return {
+                    "tool_name": tool_name,
+                    "resource_ref": resource_ref,
+                    "resolved": None,
+                    "content": rendered,
+                }
         resolved = await self._resource_resolver.resolve(ctx, resource_ref)
         return {
-            "tool_name": kwargs.get("tool_name", ""),
+            "tool_name": tool_name,
             "resource_ref": resource_ref,
             "resolved": {
                 "resource_ref": resolved.resource_ref,

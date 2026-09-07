@@ -100,6 +100,26 @@ def validate_opaque_reference(value: str) -> None:
         raise HostPortError("INVALID_OPAQUE_REFERENCE", "opaque reference is invalid")
 
 
+def _validate_scheme_uri_reference(value: str, resource_resolver: ResourceResolver) -> None:
+    """Gate scheme URIs behind an explicit resolver declaration.
+
+    Only a resolver that declares the reference's scheme in its
+    ``resource_schemes`` tuple may see the reference; otherwise the reference
+    is rejected exactly like a non-opaque one (``INVALID_OPAQUE_REFERENCE``).
+    Path/authority smuggling characters are rejected regardless.
+    """
+    scheme = value.split(":", 1)[0].lower()
+    declared = tuple(getattr(resource_resolver, "resource_schemes", ()) or ())
+    if (
+        not scheme
+        or scheme not in declared
+        or value.startswith(("/", "\\"))
+        or "@" in value
+        or "\\" in value
+    ):
+        raise HostPortError("INVALID_OPAQUE_REFERENCE", "opaque reference is invalid")
+
+
 def validate_safe_text(value: str, field: str) -> None:
     if not SAFE_TEXT.fullmatch(value) or "://" in value:
         raise HostPortError("HOST_RESPONSE_INVALID", f"host {field} is invalid")
@@ -160,7 +180,14 @@ async def resolve_run_authorization(
 
     resources: list[ResolvedResource] = []
     for resource_ref in command.resource_refs:
-        validate_opaque_reference(resource_ref)
+        if "://" in resource_ref:
+            # Scheme URIs (``incident://ticket/...``) are opaque-hostile by
+            # default (anti-smuggling). A resolver may opt in by declaring the
+            # schemes it owns (``resource_schemes``); authorization for the
+            # reference then rests on that resolver accepting it below.
+            _validate_scheme_uri_reference(resource_ref, resource_resolver)
+        else:
+            validate_opaque_reference(resource_ref)
         resolved = await _call_port(
             resource_resolver.resolve(ctx, resource_ref), timeout_seconds
         )

@@ -381,6 +381,10 @@ class IncidentResources:
 
     RESOURCE_VERSION = "incident-resource/v1"
     CLASSIFICATION = "incident"
+    # Scheme URIs the resolver owns: create-run authorization admits
+    # ``incident://...`` references only because this resolver declares the
+    # scheme (integration/host.py scheme gate).
+    resource_schemes: tuple[str, ...] = (INCIDENT_SCHEME,)
 
     def __init__(self, fallback: ResourceResolver | None = None) -> None:
         self._fallback = fallback
