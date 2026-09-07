@@ -180,17 +180,25 @@ class ModelCallRequest(RuntimeSubjectRequest):
 class ReadToolRequest(RuntimeSubjectRequest):
     tool_name: Annotated[str, Field(min_length=1, max_length=255)]
     arguments_ref: Annotated[str, Field(min_length=1, max_length=1024)]
+    # The Pod's HTTP runtime signs every op with the full bootstrap subject
+    # (execution_unit_id included — see RestoreRequest); the wire models for
+    # runtime tool ops must accept it or StrictModel's extra=forbid turns every
+    # live read/publish/propose into a 422. (RuntimeSubjectRequest keeps the
+    # base four so tests may still pass a minimal subject.)
+    execution_unit_id: Annotated[str, Field(min_length=1, max_length=255)] = ""
 
 
 class PublishArtifactRequest(RuntimeSubjectRequest):
     workspace_path: Annotated[str, Field(min_length=1, max_length=1024)]
     logical_name: Annotated[str, Field(min_length=1, max_length=255)]
     classification: Annotated[str, Field(min_length=1, max_length=64)]
+    execution_unit_id: Annotated[str, Field(min_length=1, max_length=255)] = ""
 
 
 class ProposeActionRequest(RuntimeSubjectRequest):
     action_ref: Annotated[str, Field(min_length=1, max_length=255)]
     canonical_payload_ref: Annotated[str, Field(min_length=1, max_length=1024)]
+    execution_unit_id: Annotated[str, Field(min_length=1, max_length=255)] = ""
 
 
 class FinalCheckpointRequest(RestoreRequest):

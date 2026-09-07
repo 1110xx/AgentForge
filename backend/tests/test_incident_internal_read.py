@@ -165,11 +165,17 @@ def test_read_tool_returns_real_incident_payloads() -> None:
         assert bootstrap.status_code == 200, bootstrap.text
         runtime_token = bootstrap.json()["runtime_token"]
         runtime_headers = {"Authorization": f"Bearer {runtime_token}"}
+        # The Pod signs every op with the full bootstrap subject, execution_unit_id
+        # included; the wire models must accept it (regression for live 422s).
+        unit = asyncio.run(
+            container.store.get_primary_unit(REFERENCE_LOCAL_TENANT, run_id)
+        )
         subject = {
             "tenant_id": REFERENCE_LOCAL_TENANT,
             "run_id": run_id,
             "attempt_id": attempt.attempt_id,
             "generation": attempt.generation,
+            "execution_unit_id": unit.execution_unit_id,
         }
 
         # ── ticket ──
