@@ -1,14 +1,14 @@
 {
   "controlPlane": {
     "repository": "ghcr.io/1110xx/agentforge/enterprise-agent-platform/control-plane",
-    "digest": "sha256:280b612e0aec9f3d45c14072438388f0f3fdd06439882cf5e1706b892c47363e"
+    "digest": "sha256:78de401ec78291f82e1a4bea8a1aa4a0388044309d4d8ad1b253fb8cdffd5643"
   },
   "runtime": {
     "repository": "ghcr.io/1110xx/agentforge/enterprise-agent-platform/runtime",
-    "digest": "sha256:cbb79e68fcf9c7ea34fe29f2777e27f84f21e5f7a4b655b9502e1825abd0803a"
+    "digest": "sha256:5d8a5d1ac52964a44df8586dec919c94549f1e0eb9aa6fd84a882346f398700a"
   },
   "frontend": {
     "repository": "ghcr.io/1110xx/agentforge/enterprise-agent-platform/frontend",
-    "digest": "sha256:e9db9433e214b0e88c39c5642a0221fb530ce45cfc8095415062744ae4b2bf4d"
+    "digest": "sha256:334f96de30eab605b22bb4c4184ff07ad19786262743d208f66eb36cbd32b00e"
   }
 }
