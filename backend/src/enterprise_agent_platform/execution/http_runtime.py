@@ -295,7 +295,10 @@ class HttpRuntimeClient:
     ) -> None:
         self.bind(context)
         body = self._lease_body()
-        body["summary"] = summary
+        # Bounded persistence (SDD §11.4): the wire model caps summary at 8192
+        # chars; a report-length final message would otherwise turn the
+        # terminal CAS write into a 422 and leave the Attempt stuck RUNNING.
+        body["summary"] = summary[:8000]
         body["agent_state"] = agent_state or {}
         body["agent_state_schema_version"] = (
             agent_state_schema_version or "http-runtime/v0"

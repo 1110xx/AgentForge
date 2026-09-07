@@ -161,8 +161,15 @@ def create_remote_tools(transport: TransportClient) -> list[AgentTool]:
         name="remote_read_tool",
         label="Remote Read Tool",
         description=(
-            "Read a platform resource through the Control Plane. "
-            "Use this for resources outside the local workspace."
+            'Read a platform resource through the Control Plane (use for resources '
+            'outside the local workspace, e.g. IT-incident ticket/logs/metrics data). '
+            "Contract: pass an 'arguments' object that holds EXACTLY ONE key "
+            "'resource_ref', whose value is the full resource URI to read as a plain "
+            'string. Example call: {"tool_name": "remote_read_tool", "arguments": '
+            '{"resource_ref": "incident://ticket/T20260907"}}. Never put '
+            "'resource_ref' at the top level and never leave it empty - a read with "
+            "an empty or missing resource_ref is rejected by the platform. "
+            'Quote every analysis claim with the resource URI you actually read.'
         ),
         parameters=AgentToolSchema(
             properties={
@@ -172,7 +179,17 @@ def create_remote_tools(transport: TransportClient) -> list[AgentTool]:
                 },
                 "arguments": {
                     "type": "object",
-                    "description": "Arguments for the tool (optional)",
+                    "description": (
+                        "Arguments for the read. MUST contain exactly one property "
+                        "'resource_ref': the full resource URI string to read "
+                        "(e.g. incident://ticket/T20260907)."
+                    ),
+                    "properties": {
+                        "resource_ref": {
+                            "type": "string",
+                            "description": "Full resource URI to read",
+                        },
+                    },
                 },
             },
             required=["tool_name"],
