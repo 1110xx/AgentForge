@@ -14,7 +14,7 @@
 # 用法: scripts/demo-it-incident.sh [--stream]
 #   --stream  在 Run 终态后追加监听 SSE 事件流（Ctrl+C 退出）
 #
-# 与 SDD-it-incident-investigate-v1.2.md §12 的对应：
+# 与 SDD-it-incident-investigate-v1.3.md §12 的对应：
 #   · incident:// 引用放行 = §12.1 偏差 #2（resolver 声明式 scheme 门禁）
 #   · Agent 读到真实内容   = §12.1 偏差 #5 + §12.2.1（read 钩子 / wire 修复）
 #   · 审批/驳回/rerun 演示 = §12.3 注明：live 生产链路只有 OPEN 提案、无
@@ -132,7 +132,7 @@ print('intent:', (v.get('intent') or '')[:160])
 "
 
 echo
-echo "═══ 4. 人工评审说明（SDD v1.2 §12.3）═══"
+echo "═══ 4. 人工评审说明（SDD v1.3 §12.3）═══"
 cat <<EOF
 live 生产链路中 remote_propose_action 只落 OPEN 提案，没有
 WAITING_APPROVAL + ApprovalCard 桥（也未部署 effect executor），因此
