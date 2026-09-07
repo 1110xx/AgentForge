@@ -293,6 +293,50 @@ def _clip_text(value: str) -> str:
     return value[:MAX_PERSISTED_TEXT_CHARS] + "…[truncated]"
 
 
+def _last_assistant_turn_content(
+    agent: Agent, event: AgentEvent | None = None
+) -> tuple[str, str]:
+    """Extract (thinking, message_text) of the most recent assistant message.
+
+    pi-agent-core keeps the authoritative turn text on the assistant message
+    content (TextContent.text / ThinkingContent.thinking blocks); provider-
+    level deltas are not re-emitted to subscribers, so durable turn text must
+    be read from the turn's assistant message — either carried on
+    ``TurnEndEvent.message`` or already committed into the Agent state. Content
+    blocks may be typed objects or plain dicts depending on the code path;
+    both are handled defensively and the result is bounded for persistence.
+    """
+    candidate_messages: list[object] = []
+    event_message = getattr(event, "message", None)
+    if event_message is not None:
+        candidate_messages.append(event_message)
+    state_messages = getattr(getattr(agent, "state", None), "messages", None) or []
+    candidate_messages.extend(state_messages)
+    for message in reversed(candidate_messages):
+        if type(message).__name__ != "AssistantMessage":
+            continue
+        text_parts: list[str] = []
+        thinking_parts: list[str] = []
+        for block in getattr(message, "content", None) or []:
+            if isinstance(block, dict):
+                block_type = block.get("type")
+                if block_type == "text":
+                    text_parts.append(str(block.get("text") or ""))
+                elif block_type == "thinking":
+                    thinking_parts.append(str(block.get("thinking") or ""))
+                continue
+            block_type = getattr(block, "type", "")
+            if block_type in ("text", "tool_use"):
+                text_parts.append(str(getattr(block, "text", "") or ""))
+            elif block_type == "thinking":
+                thinking_parts.append(str(getattr(block, "thinking", "") or ""))
+        return (
+            _clip_text("".join(thinking_parts)),
+            _clip_text("".join(text_parts)),
+        )
+    return "", ""
+
+
 def _stringify_bounded(value: object) -> str | None:
     """Bound any object to a short JSON string for a stream-chunk frame."""
     if value is None:
@@ -820,8 +864,21 @@ class AgentRuntime:
 
         if isinstance(event, TurnEndEvent):
             self._turn_seq += 1
-            thinking = _clip_text("".join(self._turn_thinking))
-            message_text = _clip_text("".join(self._turn_text))
+            # pi-agent-core does NOT re-emit provider-level Stream*Delta events
+            # to subscribers (verified empirically): subscribers only see
+            # Message*/TurnEnd/Agent* high-level events, so the text-delta
+            # buffers stay empty on every transport and a durable turn would
+            # carry no thinking/message text (SDD §13.3 A2 live gap). The
+            # authoritative source is the turn's assistant message content (on
+            # the Agent state or on TurnEndEvent.message). When the deltas DID
+            # stream (buffers non-empty) they remain the single source.
+            extracted_thinking, extracted_text = _last_assistant_turn_content(
+                agent, event
+            )
+            buffered_thinking = "".join(self._turn_thinking)
+            buffered_text = "".join(self._turn_text)
+            thinking = _clip_text(extracted_thinking or buffered_thinking)
+            message_text = _clip_text(extracted_text or buffered_text)
             tool_calls = tuple(self._turn_tool_calls)
             self._turn_thinking = []
             self._turn_text = []
@@ -837,6 +894,13 @@ class AgentRuntime:
                     "tool_calls": tool_calls,
                 },
             )
+            # One-shot ephemeral chunks only when no deltas streamed (HTTP
+            # non-streaming path), so the live panel still shows the text; the
+            # durable turn event replays it after the fact regardless.
+            if extracted_thinking and not buffered_thinking:
+                self._spawn_chunk({"kind": "thinking.delta", "delta": extracted_thinking})
+            if extracted_text and not buffered_text:
+                self._spawn_chunk({"kind": "text.delta", "delta": extracted_text})
             try:
                 loop = asyncio.get_running_loop()
                 self._pending_tasks.append(
