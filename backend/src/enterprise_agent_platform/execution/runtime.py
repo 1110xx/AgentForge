@@ -438,6 +438,9 @@ class AgentRuntime:
         self._turn_text: list[str] = []
         self._active_tools: dict[str, str] = {}
         self._turn_tool_calls: list[dict[str, object]] = []
+        # Text carried by the most recent durable turn (used to avoid
+        # double-emitting the final conclusion when it already streamed).
+        self._last_emitted_text = ""
         # Latest refreshed RuntimeContext (lease_version kept fresh across
         # heartbeats so turn-level checkpoint CAS does not go stale).
         self._context: RuntimeContext | None = None
@@ -638,6 +641,29 @@ class AgentRuntime:
                     if isinstance(msg, AssistantMessage):
                         summary = self._extract_text(msg)
                         break
+                # Final-conclusion durable event: the terminal assistant text
+                # may only become available AFTER its TurnEnd fired (pi-agent-
+                # core commits the message content late on the non-streaming
+                # path), leaving the last turn text-empty. Re-emit it as one
+                # extra agent.turn.completed so the activity panel shows the
+                # conclusion (SDD §13.3 A2); skip when the turn already
+                # carried the same text.
+                final_thinking, final_text = _last_assistant_turn_content(agent)
+                if (
+                    (final_thinking or final_text)
+                    and final_text != self._last_emitted_text
+                ):
+                    self._turn_seq += 1
+                    self._spawn_emit(
+                        "agent.turn.completed",
+                        {
+                            "kind": "agent.turn.completed",
+                            "turn_seq": self._turn_seq,
+                            "thinking": final_thinking,
+                            "message_text": final_text,
+                            "tool_calls": (),
+                        },
+                    )
                 exit_code = 0
 
         except Exception as exc:
@@ -879,6 +905,7 @@ class AgentRuntime:
             buffered_text = "".join(self._turn_text)
             thinking = _clip_text(extracted_thinking or buffered_thinking)
             message_text = _clip_text(extracted_text or buffered_text)
+            self._last_emitted_text = message_text
             tool_calls = tuple(self._turn_tool_calls)
             self._turn_thinking = []
             self._turn_text = []
