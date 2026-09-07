@@ -26,7 +26,7 @@ from enterprise_agent_platform.contracts.models import (
     StrictModel,
     SurfaceRevision,
 )
-from enterprise_agent_platform.control.chat import classify_intent
+from enterprise_agent_platform.control.chat import classify_intent, resolve_chat_resources
 from enterprise_agent_platform.control.context import RequestContext
 from enterprise_agent_platform.control.effect_recovery import FailedEffectRecoveryService
 from enterprise_agent_platform.control.views import RunQueryService
@@ -181,10 +181,11 @@ def create_agent_platform_router(container: AgentPlatformContainer) -> APIRouter
         require_scope(ctx, "runs:create")
         key = _idempotency_key(idempotency_key)
         plan = classify_intent(command.message, command.workflow_hint)
+        resource_refs = resolve_chat_resources(plan, command.message, command.resource_refs)
         run_command = CreateRunCommand(
             workflow_type=plan.workflow_type,
             intent=plan.intent,
-            resource_refs=command.resource_refs,
+            resource_refs=resource_refs,
             host_context_ref=command.host_context_ref,
         )
         authority = await resolve_run_authorization(

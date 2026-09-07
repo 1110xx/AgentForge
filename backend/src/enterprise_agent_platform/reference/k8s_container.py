@@ -28,6 +28,7 @@ from enterprise_agent_platform import (
 )
 from enterprise_agent_platform.persistence import InMemoryPlatformStore
 from enterprise_agent_platform.persistence.protocol import PlatformStore
+from enterprise_agent_platform.reference.incident import IncidentResources
 from enterprise_agent_platform.reference.local_stack import (
     ReferenceAllowAllPolicy,
     ReferenceHostContextVerifier,
@@ -139,7 +140,7 @@ def create_container() -> AgentPlatformContainer:
 
     return create_in_memory_container(
         auth_context_provider=auth_context_provider,
-        resource_resolver=ReferenceSyntheticResources(),
+        resource_resolver=IncidentResources(ReferenceSyntheticResources()),
         host_context_verifier=ReferenceHostContextVerifier(),
         policy_context_provider=ReferenceAllowAllPolicy(),
         store=create_store(),

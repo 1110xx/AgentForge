@@ -19,6 +19,7 @@ from enterprise_agent_platform import (
     create_in_memory_container,
 )
 from enterprise_agent_platform import create_app as create_platform_app
+from enterprise_agent_platform.reference.incident import IncidentResources
 from enterprise_agent_platform.reference.session import InMemoryRunSessionProvider
 
 REFERENCE_LOCAL_BEARER = "Bearer reference-local-demo"
@@ -95,7 +96,7 @@ def create_container() -> AgentPlatformContainer:
     """Create a fresh process-local, non-durable API container."""
     return create_in_memory_container(
         auth_context_provider=ReferenceLocalAuth(),
-        resource_resolver=ReferenceSyntheticResources(),
+        resource_resolver=IncidentResources(ReferenceSyntheticResources()),
         host_context_verifier=ReferenceHostContextVerifier(),
         policy_context_provider=ReferenceAllowAllPolicy(),
         run_sessions=InMemoryRunSessionProvider(),

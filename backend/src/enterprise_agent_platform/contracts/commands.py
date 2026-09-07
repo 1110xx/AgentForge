@@ -74,8 +74,22 @@ class SyntheticAnalysisParameters(StrictModel):
     options: SyntheticAnalysisOptions | None = None
 
 
+class IncidentInvestigateParameters(StrictModel):
+    """Optional tuning knobs for the it-incident-investigate demo workflow.
+
+    The workflow itself needs no parameters (the ticket / time window travel in
+    ``resource_refs`` / the intent); the model exists so the registry guard in
+    :meth:`CreateRunCommand.validate_controlled_parameters` accepts the type
+    while still rejecting unknown keys (StrictModel extra=forbid).
+    """
+
+    focus: Literal["root-cause", "evidence", "remediation", "full"] | None = None
+    max_log_entries: Annotated[int, Field(ge=1, le=2000)] | None = None
+
+
 WORKFLOW_PARAMETER_MODELS: dict[str, type[StrictModel]] = {
     "synthetic-analysis": SyntheticAnalysisParameters,
+    "it-incident-investigate": IncidentInvestigateParameters,
 }
 
 
