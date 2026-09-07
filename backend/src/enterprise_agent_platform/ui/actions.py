@@ -9,7 +9,7 @@ re-checks scope, digest, state, version and expiry inside one transaction.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Protocol, runtime_checkable
 
 from enterprise_agent_platform.contracts.commands import UiActionCommand
 from enterprise_agent_platform.control.context import RequestContext
@@ -19,6 +19,28 @@ from enterprise_agent_platform.ui.service import SurfaceService
 Decision = Literal["APPROVE", "REJECT"]
 
 _ACTION_PREFIX = "approval:"
+
+# Live run-level rejections (approval.step_id is None, no Step records, M6-C)
+# queue this reviewer note as the round-2 follow-up question unless the host
+# supplies a specific one. Step-bound approvals ignore it (World A harness).
+_DEFAULT_REJECT_REVISION_NOTE = (
+    "评审驳回：请依据评审意见修订报告（补充关键证据、明确根因与修复建议），"
+    "重新发布报告后再次提交审批。"
+)
+
+
+@runtime_checkable
+class ApprovalUiClosure(Protocol):
+    """Host-provided post-decision bridge (e.g. execute Effect + close the Run)."""
+
+    async def after_decision(
+        self,
+        context: RequestContext,
+        *,
+        approval_id: str,
+        decision: Decision,
+        idempotency_key: str,
+    ) -> None: ...
 
 
 def _parse_action(action_ref: str) -> tuple[str, Decision]:
@@ -45,6 +67,7 @@ def _parse_action(action_ref: str) -> tuple[str, Decision]:
 class SurfaceBoundActionHandler:
     surfaces: SurfaceService
     approvals: object
+    after_decision: ApprovalUiClosure | None = None
 
     async def handle(
         self,
@@ -84,4 +107,17 @@ class SurfaceBoundActionHandler:
             displayed_digest=command.displayed_digest or "",
             client_action_id=command.client_action_id,
             idempotency_key=idempotency_key,
+            revision_note=(
+                None if decision == "APPROVE" else _DEFAULT_REJECT_REVISION_NOTE
+            ),
         )
+        if (
+            decision == "APPROVE"
+            and self.after_decision is not None
+        ):
+            await self.after_decision.after_decision(
+                context,
+                approval_id=approval_id,
+                decision=decision,
+                idempotency_key=idempotency_key,
+            )

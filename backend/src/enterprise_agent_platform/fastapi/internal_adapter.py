@@ -243,6 +243,9 @@ class _RuntimeOpsAdapter(RuntimeOperationsPort):
         run_sessions=None,
         resource_resolver=None,
         chunk_relay=None,
+        action_planner=None,
+        approval_gate=None,
+        approval_surfaces=None,
     ) -> None:
         self._capability_key = (
             capability_key if capability_key is not None else resolve_capability_key()
@@ -254,6 +257,9 @@ class _RuntimeOpsAdapter(RuntimeOperationsPort):
             run_sessions=run_sessions,
             resource_resolver=resource_resolver,
             chunk_relay=chunk_relay,
+            action_planner=action_planner,
+            approval_gate=approval_gate,
+            approval_surfaces=approval_surfaces,
         )
         self._store = store
 
@@ -454,6 +460,10 @@ def build_internal_container(
     run_sessions=None,
     resource_resolver=None,
     chunk_relay=None,
+    # M6-C approval bridge hooks (optional, threaded to the op-service):
+    action_planner=None,
+    approval_gate=None,
+    approval_surfaces=None,
 ) -> InternalApiContainer:
     """Build the Internal Runtime API container from main-app services.
 
@@ -486,6 +496,9 @@ def build_internal_container(
                 run_sessions=run_sessions,
                 resource_resolver=resource_resolver,
                 chunk_relay=chunk_relay,
+                action_planner=action_planner,
+                approval_gate=approval_gate,
+                approval_surfaces=approval_surfaces,
             ),
             capability_key=resolved_key,
             run_sessions=run_sessions,

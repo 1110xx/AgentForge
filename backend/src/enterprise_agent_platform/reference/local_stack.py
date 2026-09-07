@@ -38,7 +38,16 @@ class ReferenceLocalAuth:
         return RequestContext(
             tenant_id=REFERENCE_LOCAL_TENANT,
             actor_id="reference-local-analyst",
-            scopes=("runs:create", "runs:read", "runs:cancel"),
+            # M6-C: the demo analyst is also the human reviewer — the approval
+            # card actions (runs:act) and the decision service (approvals:decide)
+            # ride on the same reference-local bearer.
+            scopes=(
+                "runs:create",
+                "runs:read",
+                "runs:cancel",
+                "runs:act",
+                "approvals:decide",
+            ),
             request_id=request_id,
             trace_id=trace_id,
         )
@@ -94,13 +103,21 @@ class ReferenceAllowAllPolicy:
 
 def create_container() -> AgentPlatformContainer:
     """Create a fresh process-local, non-durable API container."""
-    return create_in_memory_container(
+    from enterprise_agent_platform.persistence import InMemoryPlatformStore
+    from enterprise_agent_platform.reference.incident_live_approval import (
+        install_incident_approval_bridge,
+    )
+
+    store = InMemoryPlatformStore()
+    base = create_in_memory_container(
         auth_context_provider=ReferenceLocalAuth(),
         resource_resolver=IncidentResources(ReferenceSyntheticResources()),
         host_context_verifier=ReferenceHostContextVerifier(),
         policy_context_provider=ReferenceAllowAllPolicy(),
+        store=store,
         run_sessions=InMemoryRunSessionProvider(),
     )
+    return install_incident_approval_bridge(base, store)
 
 
 def create_app() -> FastAPI:

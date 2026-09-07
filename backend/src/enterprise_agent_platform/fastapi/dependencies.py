@@ -99,6 +99,14 @@ class AgentPlatformContainer:
     run_sessions: RunSessionProvider | None = None
     followups: FollowupHandler | None = None
     telemetry: DiagnosticTelemetry | None = None
+    # M6-C approval bridge hooks (vertical-agnostic, injected by hosts):
+    # ``approval_surfaces`` commits the ApprovalCard surface on a run-level
+    # approval gate; ``action_planner`` canonicalises a child ``propose`` into
+    # a registered action plan; ``approval_gate`` decides which OPEN proposal
+    # pauses the Run at final commit (both threaded into the op-service).
+    approval_surfaces: object | None = None
+    action_planner: object | None = None
+    approval_gate: object | None = None
 
     def __post_init__(self) -> None:
         if self.host_port_timeout_seconds <= 0:

@@ -138,15 +138,21 @@ def create_container() -> AgentPlatformContainer:
     # (authenticate_request/require_scope) is provider-agnostic.
     auth_context_provider = create_auth_provider_from_env()
 
-    return create_in_memory_container(
+    store = create_store()
+    created = create_in_memory_container(
         auth_context_provider=auth_context_provider,
         resource_resolver=IncidentResources(ReferenceSyntheticResources()),
         host_context_verifier=ReferenceHostContextVerifier(),
         policy_context_provider=ReferenceAllowAllPolicy(),
-        store=create_store(),
+        store=store,
         run_sessions=run_sessions,
         telemetry=telemetry,
     )
+    from enterprise_agent_platform.reference.incident_live_approval import (
+        install_incident_approval_bridge,
+    )
+
+    return install_incident_approval_bridge(created, store)
 
 
 __all__ = [

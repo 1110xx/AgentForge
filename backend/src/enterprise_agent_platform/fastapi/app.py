@@ -354,6 +354,11 @@ def create_agent_platform_app(container: AgentPlatformContainer) -> FastAPI:
                 # so live HTTP-runtime stream-chunks reach the frontend (SDD
                 # §13.3 A2); the underlying instance implements both sides.
                 chunk_relay=container.chunk_streamer,
+                # M6-C approval bridge hooks (vertical-agnostic; hosts that do
+                # not wire them keep the legacy record-only propose behaviour).
+                action_planner=container.action_planner,
+                approval_gate=container.approval_gate,
+                approval_surfaces=container.approval_surfaces,
             )
         )
     )

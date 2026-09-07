@@ -362,6 +362,23 @@ class _MemoryTransaction:
         except KeyError as error:
             raise _not_found("action proposal") from error
 
+    async def list_open_action_proposals_for_unit(
+        self,
+        tenant_id: str,
+        run_id: str,
+        execution_unit_id: str,
+    ) -> tuple[ActionProposalRecord, ...]:
+        matches = [
+            record
+            for (record_tenant, _ref), record in self._state.action_proposals.items()
+            if record_tenant == tenant_id
+            and record.run_id == run_id
+            and record.execution_unit_id == execution_unit_id
+            and getattr(record.status, "value", record.status) == "OPEN"
+        ]
+        matches.sort(key=lambda r: (r.created_at, r.action_ref))
+        return tuple(_detached(record) for record in matches)
+
     async def get_approval_request(
         self, tenant_id: str, approval_id: str
     ) -> ApprovalRequestRecord:
@@ -1627,6 +1644,24 @@ class InMemoryPlatformStore:
                 return _detached(self._state.action_proposals[(tenant_id, action_ref)])
             except KeyError as error:
                 raise _not_found("action proposal") from error
+
+    async def list_open_action_proposals_for_unit(
+        self,
+        tenant_id: str,
+        run_id: str,
+        execution_unit_id: str,
+    ) -> tuple[ActionProposalRecord, ...]:
+        async with self._lock:
+            matches = [
+                record
+                for (record_tenant, _ref), record in self._state.action_proposals.items()
+                if record_tenant == tenant_id
+                and record.run_id == run_id
+                and record.execution_unit_id == execution_unit_id
+                and getattr(record.status, "value", record.status) == "OPEN"
+            ]
+            matches.sort(key=lambda r: (r.created_at, r.action_ref))
+            return tuple(_detached(record) for record in matches)
 
     async def get_approval_request(
         self, tenant_id: str, approval_id: str

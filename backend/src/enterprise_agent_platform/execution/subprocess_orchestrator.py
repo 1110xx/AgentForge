@@ -48,7 +48,12 @@ from enterprise_agent_platform.contracts.events import (
     ArtifactVersionPayload,
     EnterpriseEventEnvelope,
 )
-from enterprise_agent_platform.control.checkpoints import CheckpointCommit, commit_checkpoint
+from enterprise_agent_platform.control.checkpoints import (
+    ApprovalPause,
+    CheckpointCommit,
+    commit_checkpoint,
+    pause_for_approval,
+)
 from enterprise_agent_platform.control.context import RequestContext
 from enterprise_agent_platform.control.service import ControlPlaneService
 from enterprise_agent_platform.domain.action_digest import compute_action_request_digest
@@ -106,6 +111,16 @@ class SubprocessOrchestrator:
         telemetry: DiagnosticTelemetry | None = None,
         chunk_relay: RunChunkSink | None = None,
         capability_key: str | None = None,
+        # M6-C approval bridge hooks (optional, live wiring injects them):
+        # ``action_planner`` canonicalises a child ``propose`` into a registered
+        # action plan (callable returning a plan object or None);
+        # ``approval_gate`` decides which OPEN proposal pauses the Run at final
+        # commit (predicate over ActionProposalRecord);
+        # ``approval_surfaces`` commits the ApprovalCard surface on a pause
+        # (object exposing ``commit_approval_surface``).
+        action_planner: Any | None = None,
+        approval_gate: Any | None = None,
+        approval_surfaces: Any | None = None,
     ) -> None:
         self._store = store
         self._control = control
@@ -118,6 +133,9 @@ class SubprocessOrchestrator:
         # Live-streaming bridge: ephemeral stream-chunk sink (SDD §11.5).
         # None disables the ephemeral link; durable bridge events still append.
         self._chunk_relay = chunk_relay
+        self._action_planner = action_planner
+        self._approval_gate = approval_gate
+        self._approval_surfaces = approval_surfaces
         # HMAC Runtime capability signing key (security/runtime_tokens.py): the
         # local subprocess form issues the same signed rt.v1.* token the HTTP
         # form uses so all three forms stay format-consistent. Resolves from
@@ -462,6 +480,28 @@ class SubprocessOrchestrator:
                 agent_state_schema_version=schema_version,
                 summary=summary,
             )
+            # M6-C approval gate: when an OPEN, plan-bound proposal exists for
+            # this unit (e.g. the incident ITSM handoff), the final commit
+            # pauses the Run at WAITING_APPROVAL instead of completing it. The
+            # child receives a normal ``committed`` ack so it exits cleanly.
+            if self._approval_gate is not None:
+                gate_proposal = await self._find_gate_proposal(ticket)
+                if gate_proposal is not None:
+                    paused = await self._pause_run_for_approval_gate(
+                        ticket,
+                        ctx,
+                        kwargs,
+                        gate_proposal,
+                        agent_state=agent_state,
+                        agent_state_schema_version=schema_version,
+                        summary=summary,
+                    )
+                    return {
+                        "status": "committed",
+                        "paused_for_approval": True,
+                        "approval_id": paused.approval.approval_id,
+                        "checkpoint_id": paused.checkpoint.checkpoint_id,
+                    }
             run = await self._store.get_run(ticket.tenant_id, ticket.run_id)
             await self._completer.complete_run(ctx, ticket, run)
             answered = await self._answer_pending_followup(ticket, summary)
@@ -607,6 +647,123 @@ class SubprocessOrchestrator:
             ),
         )
         return checkpoint
+
+    async def _find_gate_proposal(self, ticket: DispatchTicket) -> Any | None:
+        """Return the first OPEN proposal of this unit that the approval gate
+        predicate accepts (None when the gate is unconfigured)."""
+        if self._approval_gate is None:
+            return None
+        open_proposals = await self._store.list_open_action_proposals_for_unit(
+            ticket.tenant_id,
+            ticket.run_id,
+            ticket.execution_unit_id,
+        )
+        for proposal in open_proposals:
+            if self._approval_gate(proposal):
+                return proposal
+        return None
+
+    async def _pause_run_for_approval_gate(
+        self,
+        ticket: DispatchTicket,
+        ctx: RequestContext,
+        kwargs: dict[str, Any],
+        gate_proposal: Any,
+        *,
+        agent_state: dict[str, Any],
+        agent_state_schema_version: str,
+        summary: str,
+    ) -> Any:
+        """Step-less approval pause at final commit (M6-C D6).
+
+        Fences the Attempt RUNNING → CHECKPOINTING (commit_checkpoint already
+        returned it to RUNNING), then runs the shared step-less approval pause
+        (control.checkpoints.pause_for_approval with step_id=None) and commits
+        the ApprovalCard surface so the frontend can render Approve/Reject.
+        """
+        from enterprise_agent_platform.ui.service import ApprovalSurfaceRequest
+
+        context_kwargs = kwargs.get("context") or {}
+        lease_owner = str(context_kwargs.get("lease_owner", ""))
+        expected_lease_version = int(context_kwargs.get("lease_version", 0))
+        now = datetime.now(UTC)
+        async with self._store.transaction() as tx:
+            current = await tx.get_attempt(ticket.tenant_id, ticket.attempt_id)
+            if current.status is not AttemptState.RUNNING:
+                raise PlatformError(
+                    "INVALID_STATE",
+                    "approval gate expects a RUNNING Attempt at final commit",
+                )
+            _fsm(EntityType.ATTEMPT, current.status, AttemptState.CHECKPOINTING, None)
+            checkpointing = replace(
+                current,
+                status=AttemptState.CHECKPOINTING,
+                version=current.version + 1,
+                updated_at=now,
+            )
+            await tx.replace_attempt_cas(checkpointing, current.version)
+        run = await self._store.get_run(ticket.tenant_id, ticket.run_id)
+        unit = await self._store.get_execution_unit(
+            ticket.tenant_id, ticket.execution_unit_id
+        )
+        cursor: dict[str, Any] = {
+            "intent": run.intent,
+            "resource_refs": list(run.resource_refs),
+            "summary": summary,
+            "node": "await-approval-review",
+            "action_ref": gate_proposal.action_ref,
+        }
+        checksum = hashlib.sha256(
+            json.dumps(
+                agent_state,
+                allow_nan=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        approval = ApprovalPause(
+            step_id=None,
+            action_ref=gate_proposal.action_ref,
+            approval_type="EXTERNAL_WRITE",
+            request_digest=gate_proposal.request_digest,
+            canonical_request_ref=gate_proposal.payload_ref,
+            expires_at=now + timedelta(hours=1),
+        )
+        result = await pause_for_approval(
+            self._store,
+            ctx,
+            attempt_id=ticket.attempt_id,
+            generation=ticket.generation,
+            lease_owner=lease_owner,
+            expected_lease_version=expected_lease_version,
+            checkpoint=CheckpointCommit(
+                source_checkpoint_id=(
+                    unit.current_checkpoint_id or ticket.source_checkpoint_id
+                ),
+                workflow_cursor=cursor,
+                checksum=checksum,
+                agent_state=agent_state,
+                agent_state_schema_version=agent_state_schema_version or "pi-agent-core/v1",
+            ),
+            approval=approval,
+        )
+        if self._approval_surfaces is not None:
+            await self._approval_surfaces.commit_approval_surface(
+                ApprovalSurfaceRequest(
+                    tenant_id=ticket.tenant_id,
+                    run_id=ticket.run_id,
+                    surface_id=f"approval-{ticket.run_id}-g{ticket.generation}",
+                    approval_id=result.approval.approval_id,
+                    title="Execute incident remediation handoff?",
+                    trace_id=ctx.trace_id,
+                )
+            )
+        logger.info(
+            "Approval gate paused: run=%s approval=%s (final commit)",
+            ticket.run_id,
+            result.approval.approval_id,
+        )
+        return result
 
     async def _op_restore(
         self,
@@ -1046,20 +1203,68 @@ class SubprocessOrchestrator:
             }
 
         now = datetime.now(UTC)
-        # Authority facts: the child may provide them explicitly; otherwise the
-        # proxy defaults to a canonical self-targeted action so the digest is
-        # always well-defined and approval decisions stay verifiable.
-        tool_name = str(kwargs.get("tool_name", "remote_propose_action"))
-        tool_spec_version = str(kwargs.get("tool_spec_version", "1.0"))
-        tool_spec_digest = str(kwargs.get("tool_spec_digest", "sha256:proposed"))
-        connector_name = str(kwargs.get("connector_name", "control-plane-default"))
-        required_scopes = tuple(sorted(set(kwargs.get("required_scopes", ("actions:execute",)))))
-        canonical_target = str(kwargs.get("canonical_target", "action://" + action_ref))
-        canonical_payload_digest = (
-            str(kwargs.get("canonical_payload_digest"))
-            or ("sha256:" + canonical_payload_ref if canonical_payload_ref else "")
+        # M6-C: canonicalise ``propose`` into a registered action plan (ITSΜ
+        # remediation handoff) when the action_planner hook is configured. The
+        # plan supplies the connector/tool/target constants the durable Effect
+        # executor can run, plus a deterministic payload reference that marks
+        # the proposal for the final-commit approval gate.
+        plan = None
+        if self._action_planner is not None:
+            run0 = await self._store.get_run(ticket.tenant_id, ticket.run_id)
+            ready = await self._store.list_ready_artifacts_for_run(
+                ticket.tenant_id, ticket.run_id
+            )
+            plan = await self._action_planner(
+                action_ref,
+                tenant_id=ticket.tenant_id,
+                run_id=ticket.run_id,
+                generation=ticket.generation,
+                intent=run0.intent,
+                ready_artifacts=ready,
+            )
+        tool_name = str(
+            kwargs.get("tool_name")
+            or (plan.tool_name if plan is not None else "remote_propose_action")
         )
-        risk_class = str(kwargs.get("risk_class", "unknown"))
+        tool_spec_version = str(
+            kwargs.get("tool_spec_version")
+            or (plan.tool_spec_version if plan is not None else "1.0")
+        )
+        tool_spec_digest = str(
+            kwargs.get("tool_spec_digest")
+            or (plan.tool_spec_digest if plan is not None else "sha256:proposed")
+        )
+        connector_name = str(
+            kwargs.get("connector_name")
+            or (plan.connector_name if plan is not None else "control-plane-default")
+        )
+        required_scopes = tuple(
+            sorted(
+                set(
+                    kwargs.get(
+                        "required_scopes",
+                        plan.required_scopes
+                        if plan is not None
+                        else ("actions:execute",),
+                    )
+                )
+            )
+        )
+        canonical_target = str(
+            kwargs.get("canonical_target")
+            or (plan.canonical_target if plan is not None else "action://" + action_ref)
+        )
+        canonical_payload_ref = (
+            plan.payload_ref if plan is not None else canonical_payload_ref
+        )
+        canonical_payload_digest = str(kwargs.get("canonical_payload_digest")) or (
+            plan.canonical_payload_digest
+            if plan is not None
+            else ("sha256:" + canonical_payload_ref if canonical_payload_ref else "")
+        )
+        risk_class = str(
+            plan.risk_class if plan is not None else kwargs.get("risk_class", "unknown")
+        )
         request_digest = compute_action_request_digest(
             action_ref=action_ref,
             tool_name=tool_name,

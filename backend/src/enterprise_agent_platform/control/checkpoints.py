@@ -87,7 +87,11 @@ class CheckpointCommit:
 
 @dataclass(frozen=True, slots=True)
 class ApprovalPause:
-    step_id: str
+    # ``step_id`` is required when the approval gate is bound to a Step
+    # (step-based control flows, SDD World A). Live attempt-pod runs have no
+    # Step records (M6-C decision D6): pass ``step_id=None`` for a run-level
+    # approval gate that pauses the whole Run/Unit/Attempt.
+    step_id: str | None
     action_ref: str
     approval_type: str
     request_digest: str
@@ -97,7 +101,6 @@ class ApprovalPause:
     def __post_init__(self) -> None:
         if not all(
             (
-                self.step_id,
                 self.action_ref,
                 self.approval_type,
                 self.request_digest,
@@ -512,17 +515,28 @@ async def pause_for_approval(
             source_checkpoint_id=checkpoint.source_checkpoint_id,
             now=now,
         )
-        step = await tx.get_step(ctx.tenant_id, approval.step_id)
+        step = (
+            None
+            if approval.step_id is None
+            else await tx.get_step(ctx.tenant_id, approval.step_id)
+        )
         proposal = await tx.get_action_proposal(ctx.tenant_id, approval.action_ref)
-        if (
-            step.run_id != facts.run.run_id
-            or step.status is not StepState.ACTIVE
-            or facts.attempt.step_id != step.step_id
-        ):
-            raise PlatformError("INVALID_STATE", "Step is not active for this Attempt")
+        if approval.step_id is not None:
+            if (
+                step is None
+                or step.run_id != facts.run.run_id
+                or step.status is not StepState.ACTIVE
+                or facts.attempt.step_id != step.step_id
+            ):
+                raise PlatformError("INVALID_STATE", "Step is not active for this Attempt")
+        elif facts.attempt.step_id is not None:
+            raise PlatformError(
+                "APPROVAL_DIGEST_MISMATCH",
+                "run-level approval cannot gate a step-bound Attempt",
+            )
         if (
             proposal.run_id != facts.run.run_id
-            or proposal.step_id != step.step_id
+            or proposal.step_id != approval.step_id
             or proposal.attempt_id != facts.attempt.attempt_id
             or proposal.execution_unit_id != facts.unit.execution_unit_id
             or proposal.source_generation != facts.attempt.generation
@@ -547,7 +561,8 @@ async def pause_for_approval(
             AttemptState.CHECKPOINTED_FOR_APPROVAL,
             approval,
         )
-        transition(EntityType.STEP, step.status, StepState.WAITING_APPROVAL, approval)
+        if step is not None:
+            transition(EntityType.STEP, step.status, StepState.WAITING_APPROVAL, approval)
         transition(
             EntityType.EXECUTION_UNIT,
             facts.unit.status,
@@ -602,7 +617,7 @@ async def pause_for_approval(
             tenant_id=ctx.tenant_id,
             approval_id=store.new_id("approval"),
             run_id=facts.run.run_id,
-            step_id=step.step_id,
+            step_id=approval.step_id,
             action_ref=proposal.action_ref,
             approval_type=approval.approval_type,
             request_digest=approval.request_digest,
@@ -614,13 +629,6 @@ async def pause_for_approval(
             decided_at=None,
             decision_reason=None,
             created_at=now,
-            updated_at=now,
-        )
-        waiting_step = replace(
-            step,
-            status=StepState.WAITING_APPROVAL,
-            status_reason="APPROVAL_REQUIRED",
-            version=step.version + 1,
             updated_at=now,
         )
         paused_attempt = replace(
@@ -703,7 +711,17 @@ async def pause_for_approval(
         )
         await tx.insert_checkpoint(committed)
         await tx.insert_approval_request(approval_record)
-        await tx.replace_step_cas(waiting_step, step.version)
+        if step is not None:
+            await tx.replace_step_cas(
+                replace(
+                    step,
+                    status=StepState.WAITING_APPROVAL,
+                    status_reason="APPROVAL_REQUIRED",
+                    version=step.version + 1,
+                    updated_at=now,
+                ),
+                step.version,
+            )
         await tx.replace_attempt_cas(paused_attempt, facts.attempt.version)
         await tx.replace_lease_cas(released_lease, facts.lease.version)
         await tx.replace_execution_unit_cas(waiting_unit, facts.unit.version)

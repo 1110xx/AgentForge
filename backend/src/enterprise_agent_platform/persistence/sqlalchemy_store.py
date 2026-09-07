@@ -808,6 +808,24 @@ class SqlAlchemyPlatformTransaction:
             _action_proposal,
         )
 
+    async def list_open_action_proposals_for_unit(
+        self,
+        tenant_id: str,
+        run_id: str,
+        execution_unit_id: str,
+    ) -> tuple[ActionProposalRecord, ...]:
+        return await self._many(
+            select(action_proposal_table)
+            .where(
+                action_proposal_table.c.tenant_id == tenant_id,
+                action_proposal_table.c.run_id == run_id,
+                action_proposal_table.c.execution_unit_id == execution_unit_id,
+                action_proposal_table.c.status == ActionProposalState.OPEN.value,
+            )
+            .order_by(action_proposal_table.c.created_at, action_proposal_table.c.action_ref),
+            _action_proposal,
+        )
+
     async def get_approval_request(
         self, tenant_id: str, approval_id: str
     ) -> ApprovalRequestRecord:
@@ -2109,6 +2127,18 @@ class SqlAlchemyPlatformStore:
 
     async def get_action_proposal(self, tenant_id: str, action_ref: str) -> ActionProposalRecord:
         return await self._read(lambda tx: tx.get_action_proposal(tenant_id, action_ref))
+
+    async def list_open_action_proposals_for_unit(
+        self,
+        tenant_id: str,
+        run_id: str,
+        execution_unit_id: str,
+    ) -> tuple[ActionProposalRecord, ...]:
+        return await self._read(
+            lambda tx: tx.list_open_action_proposals_for_unit(
+                tenant_id, run_id, execution_unit_id
+            )
+        )
 
     async def get_approval_request(
         self, tenant_id: str, approval_id: str

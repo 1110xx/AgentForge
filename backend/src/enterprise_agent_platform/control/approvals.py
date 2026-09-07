@@ -26,6 +26,7 @@ from enterprise_agent_platform.domain.fsm import transition
 from enterprise_agent_platform.domain.records import (
     AuditEventRecord,
     EffectLedgerRecord,
+    FollowupRequestRecord,
     OutboxMessageRecord,
 )
 from enterprise_agent_platform.persistence.protocol import PlatformError, PlatformStore
@@ -72,6 +73,7 @@ class ApprovalDecisionService:
         displayed_digest: str,
         client_action_id: str,
         idempotency_key: str,
+        revision_note: str | None = None,
     ) -> None:
         if "approvals:decide" not in ctx.scopes:
             raise PlatformError("FORBIDDEN", "approval decision scope is required")
@@ -136,7 +138,13 @@ class ApprovalDecisionService:
                 or unit.run_id != run.run_id
                 or run.status is not RunState.WAITING_APPROVAL
                 or unit.status is not ExecutionUnitState.WAITING_APPROVAL
-                or step is None
+            ):
+                raise PlatformError(
+                    "APPROVAL_DECISION_REJECTED",
+                    "approval is stale, expired, or no longer bound to waiting work",
+                )
+            if approval.step_id is not None and (
+                step is None
                 or step.run_id != run.run_id
                 or step.status is not StepState.WAITING_APPROVAL
             ):
@@ -259,8 +267,28 @@ class ApprovalDecisionService:
                     )
                 )
             else:
-                pass
-            transition(EntityType.STEP, step.status, StepState.ACTIVE, decision)
+                # Run-level live rejection (no Step records, M6-C D6): open a
+                # follow-up Attempt that answers the reviewer's revision note.
+                # restore() injects the question into the round-2 child cursor;
+                # the child revises the report, re-publishes, and either
+                # re-proposes (gate again) or commits normally.
+                if approval.step_id is None and revision_note:
+                    await tx.insert_followup_request(
+                        FollowupRequestRecord(
+                            tenant_id=ctx.tenant_id,
+                            followup_id=self._store.new_id("followup"),
+                            run_id=run.run_id,
+                            question=revision_note,
+                            client_followup_id=f"approval-reject:{approval_id}",
+                            status="PENDING",
+                            answer=None,
+                            version=1,
+                            created_at=now,
+                            answered_at=None,
+                        )
+                    )
+            if step is not None:
+                transition(EntityType.STEP, step.status, StepState.ACTIVE, decision)
             transition(
                 EntityType.EXECUTION_UNIT,
                 unit.status,
@@ -303,14 +331,17 @@ class ApprovalDecisionService:
                 version=unit.version + 1,
                 updated_at=now,
             )
-            active_step = replace(
-                step,
-                status=StepState.ACTIVE,
-                status_reason=status_reason,
-                version=step.version + 1,
-                updated_at=now,
-            )
-            await tx.replace_step_cas(active_step, step.version)
+            if step is not None:
+                await tx.replace_step_cas(
+                    replace(
+                        step,
+                        status=StepState.ACTIVE,
+                        status_reason=status_reason,
+                        version=step.version + 1,
+                        updated_at=now,
+                    ),
+                    step.version,
+                )
             await tx.replace_execution_unit_cas(recovering_unit, unit.version)
             if decision == "REJECT":
                 outbox.append(
