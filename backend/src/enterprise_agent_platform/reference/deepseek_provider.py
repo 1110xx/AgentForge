@@ -7,19 +7,17 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
+
 from enterprise_agent_platform.execution.session import (
-    FollowupExchange,
     SessionHandle,
     SessionProviderError,
 )
 from enterprise_agent_platform.platform.config_reader import (
     AppConfig,
     ConfigReader,
-    ProviderParameters,
-    SessionConfig,
 )
 
 
@@ -31,7 +29,7 @@ class _DeepSeekSession:
     intent: str
     model: str = "deepseek-chat"
     max_history_length: int = 100
-    messages: List[Dict[str, str]] = field(default_factory=list)
+    messages: list[dict[str, str]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.messages = [
@@ -52,19 +50,20 @@ class DeepSeekModelSessionProvider:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
         *,
-        app_config: Optional[AppConfig] = None,
-        model: Optional[str] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        top_p: Optional[float] = None,
-        frequency_penalty: Optional[float] = None,
-        presence_penalty: Optional[float] = None,
-        timeout_seconds: Optional[int] = None,
-        max_history_length: Optional[int] = None,
-        read_only_followup: Optional[bool] = None,
+        app_config: AppConfig | None = None,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        top_p: float | None = None,
+        frequency_penalty: float | None = None,
+        presence_penalty: float | None = None,
+        timeout_seconds: int | None = None,
+        max_history_length: int | None = None,
+        read_only_followup: bool | None = None,
+        retry_attempts: int | None = None,
     ):
         # Load config if not provided
         if app_config is None:
@@ -106,9 +105,12 @@ class DeepSeekModelSessionProvider:
         )
 
         # Runtime state
-        self._sessions: Dict[str, _DeepSeekSession] = {}
+        self._sessions: dict[str, _DeepSeekSession] = {}
         self._closed: set[str] = set()
         self._client: httpx.AsyncClient | None = None  # created lazily in _call_api
+        # Transient-network retry budget (TLS/connect resets are intermittent on
+        # some hosts; 4xx auth errors are never retried).
+        self.retry_attempts = retry_attempts or 3
 
     async def open(
         self,
@@ -218,9 +220,48 @@ class DeepSeekModelSessionProvider:
             )
         return self._client
 
-    async def _call_api(self, messages: List[Dict[str, str]]) -> str:
+    async def _post_with_retry(
+        self, url: str, payload: dict[str, Any]
+    ) -> httpx.Response:
+        """POST with bounded retries on transient network failures.
+
+        The local WSL2/Docker egress path intermittently resets TLS
+        mid-handshake (observed as intermittent ``UNEXPECTED_EOF``/connect
+        resets); retrying a fresh connection usually succeeds. 5xx/429 are
+        retried; 4xx (auth/validation) fail fast.
+        """
+        import asyncio
+
+        last_error: Exception | None = None
+        for attempt in range(1, self.retry_attempts + 1):
+            client = await self._ensure_client()
+            try:
+                response = await client.post(url, json=payload)
+            except httpx.TransportError as e:
+                last_error = e
+                if attempt < self.retry_attempts:
+                    await asyncio.sleep(0.4 * (2 ** (attempt - 1)))
+                    continue
+                raise SessionProviderError(
+                    "API_CALL_FAILED",
+                    f"DeepSeek transport error after {attempt} attempts: {e}",
+                ) from e
+            if (
+                response.status_code == 200
+                or response.status_code not in (429, 500, 502, 503, 504)
+            ):
+                return response
+            last_error = SessionProviderError(
+                "API_CALL_FAILED",
+                f"DeepSeek API error {response.status_code}: {response.text[:300]}",
+            )
+            if attempt < self.retry_attempts:
+                await asyncio.sleep(0.4 * (2 ** (attempt - 1)))
+        assert last_error is not None
+        raise last_error
+
+    async def _call_api(self, messages: list[dict[str, str]]) -> str:
         """Call the DeepSeek chat completions API with configured parameters."""
-        client = await self._ensure_client()
         payload = {
             "model": self.model,
             "messages": messages,
@@ -231,11 +272,9 @@ class DeepSeekModelSessionProvider:
             "presence_penalty": self.presence_penalty,
         }
 
-        response = await client.post(
-            f"{self.base_url}/chat/completions",
-            json=payload,
+        response = await self._post_with_retry(
+            f"{self.base_url}/chat/completions", payload
         )
-
         if response.status_code != 200:
             raise SessionProviderError(
                 "API_CALL_FAILED",
@@ -246,16 +285,15 @@ class DeepSeekModelSessionProvider:
 
     async def _call_api_tools(
         self,
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         """Call the LLM API with tool definitions support.
 
         Returns the full response dict including content blocks (text, tool_use)
         and stop_reason. Used by pi-agent-core integration for tool-calling agents.
         """
-        client = await self._ensure_client()
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
             "temperature": self.temperature,
@@ -278,11 +316,9 @@ class DeepSeekModelSessionProvider:
                 for t in tools
             ]
 
-        response = await client.post(
-            f"{self.base_url}/chat/completions",
-            json=payload,
+        response = await self._post_with_retry(
+            f"{self.base_url}/chat/completions", payload
         )
-
         if response.status_code != 200:
             raise SessionProviderError(
                 "API_CALL_FAILED",
@@ -303,7 +339,7 @@ class DeepSeekModelSessionProvider:
         mapped_reason = stop_reason_map.get(finish_reason, finish_reason)
 
         # Parse content blocks
-        content_blocks: List[Dict[str, Any]] = []
+        content_blocks: list[dict[str, Any]] = []
         if message.get("content"):
             content_blocks.append({
                 "type": "text",
@@ -338,7 +374,7 @@ class DeepSeekModelSessionProvider:
             },
         }
 
-    async def __aenter__(self) -> "DeepSeekModelSessionProvider":
+    async def __aenter__(self) -> DeepSeekModelSessionProvider:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -354,8 +390,8 @@ class DeepSeekModelSessionProvider:
 
 
 def create_deepseek_provider(
-    api_key: Optional[str] = None,
-    config_path: Optional[str] = None,
+    api_key: str | None = None,
+    config_path: str | None = None,
 ) -> DeepSeekModelSessionProvider:
     """Create a DeepSeek provider from config.toml and optional overrides."""
     reader = ConfigReader(config_path)
