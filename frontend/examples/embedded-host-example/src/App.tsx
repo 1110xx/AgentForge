@@ -14,6 +14,15 @@ import { createMockFetch } from "./mock-api.js";
 
 type DemoMode = "demo" | "live";
 
+// Incident vertical presets (SDD-it-incident-investigate v1.2 §3/§12): the
+// deterministic script below is the exact shape proven on the live cluster
+// (reads → report file → publish artifact; no propose/fix).
+type WorkflowMode = "synthetic-analysis" | "it-incident-investigate";
+
+const INCIDENT_INTENT = `Investigate IT incident ticket T20260907 (pay-service 504). Follow this exact script. STEP 1: call remote_read_tool once with arguments={"resource_ref":"incident://ticket/T20260907"}. STEP 2: call remote_read_tool once with arguments={"resource_ref":"incident://logs/pay-service"}. STEP 3: call remote_read_tool once with arguments={"resource_ref":"incident://metrics/pay-service"}. Do NOT repeat any read and do NOT call any other tool yet; the returned data is complete. STEP 4: analyse and write the markdown report to path /tmp/workspace/incident-report-T20260907.md using file_write (content: overview, quoted evidence, root cause, fix recommendations, follow-up). STEP 5: publish it exactly once with remote_publish_artifact: workspace_path=/tmp/workspace/incident-report-T20260907.md, logical_name=incident-report-T20260907.md, classification=report. Then STOP and reply with one short confirmation sentence. Never call remote_propose_action.`;
+
+const INCIDENT_RESOURCE_REF = "incident://ticket/T20260907";
+
 const pageStyle: CSSProperties = {
   maxWidth: "520px",
   margin: "0 auto",
@@ -143,6 +152,8 @@ const chipStyle: CSSProperties = {
 
 export function App() {
   const [mode, setMode] = useState<DemoMode>("demo");
+  const [workflow, setWorkflow] =
+    useState<WorkflowMode>("synthetic-analysis");
   const [intent, setIntent] = useState("Analyze failure patterns");
   const [resourceRef, setResourceRef] = useState("submission:demo");
   const [liveToken, setLiveToken] = useState("reference-local-demo");
@@ -150,6 +161,17 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [bridgeLog, setBridgeLog] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  const selectWorkflow = (next: WorkflowMode): void => {
+    setWorkflow(next);
+    if (next === "it-incident-investigate") {
+      setIntent(INCIDENT_INTENT);
+      setResourceRef(INCIDENT_RESOURCE_REF);
+    } else {
+      setIntent("Analyze failure patterns");
+      setResourceRef("submission:demo");
+    }
+  };
 
   const client = useMemo(() => {
     const options: AgentPlatformClientOptions = {
@@ -192,7 +214,7 @@ export function App() {
     try {
       const snapshot = await client.createRun(
         {
-          workflow_type: "synthetic-analysis",
+          workflow_type: workflow,
           intent: intent.trim(),
           resource_refs: [resourceRef.trim()],
           parameters: {},
@@ -244,6 +266,28 @@ export function App() {
             Advanced: create run manually
           </summary>
           <form onSubmit={(event) => void createRun(event)}>
+            <div style={fieldStyle}>
+              <label htmlFor="workflow" style={{ minWidth: "90px" }}>
+                workflow
+              </label>
+              <select
+                id="workflow"
+                style={inputStyle}
+                value={workflow}
+                onChange={(event) =>
+                  selectWorkflow(
+                    event.target.value as WorkflowMode,
+                  )
+                }
+              >
+                <option value="synthetic-analysis">
+                  synthetic-analysis
+                </option>
+                <option value="it-incident-investigate">
+                  it-incident-investigate (故障排查)
+                </option>
+              </select>
+            </div>
             <div style={fieldStyle}>
               <label htmlFor="intent" style={{ minWidth: "90px" }}>
                 intent
@@ -318,10 +362,11 @@ export function App() {
               用浮窗发起一次对话
             </div>
             <div style={statusLine}>
-              点击右下角 💬 Agent，输入任意问题（如“分析日志中的故障模式”）后
-              发送——Demo 模式 mock 回放完整参考工作流（progress → evidence
-              → artifact → approval → effect → succeeded）；Live 模式则由真实
-              后端创建 Run 并返回 201 + run_id。
+              Live 模式输入“分析工单 T20260907 / 支付服务 504”等关键词即由后端
+              chat 路由命中 it-incident-investigate 垂直；也可在上方 Advanced
+              表单选 workflow=it-incident-investigate 直接创建故障排查 Run。
+              Demo 模式 mock 回放完整参考工作流（progress → evidence →
+              artifact → approval → effect → succeeded）。
             </div>
           </div>
         ) : (
