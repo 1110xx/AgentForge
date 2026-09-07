@@ -43,18 +43,24 @@ api() { # api <method> <path> [data]
   local method="$1" path="$2" data="${3:-}"
   local args=(-s -X "$method" "$BASE_URL$path" -H "Host: $HOST_HEADER" \
     -H "Authorization: Bearer $TOKEN")
+  # /runs create 需要幂等键（平台门禁），其余 op 无副作用也无妨。
+  if [ "$method" = "POST" ]; then
+    args+=(-H "Idempotency-Key: demo-incident-$(date +%s)-$$")
+  fi
   if [ -n "$data" ]; then
     args+=(-H "Content-Type: application/json" -d "$data")
   fi
   curl "${args[@]}"
 }
 
-json_get() { python3 -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null || true; }
+PY="${PYTHON:-python3}"; command -v python3 >/dev/null 2>&1 || PY="python"
+
+json_get() { "$PY" -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null || true; }
 
 # intent 与 resource_refs 统一在 python 里序列化（bash 引号零转义）。
 export INC_TICKET_ID="$TICKET_ID" INC_SERVICE="$SERVICE"
 build_payload() {
-  python3 - <<'PY'
+  "$PY" - <<'PY'
 import json, os
 ticket = os.environ["INC_TICKET_ID"]
 service = os.environ["INC_SERVICE"]
@@ -107,7 +113,7 @@ done
 
 echo
 echo "═══ 3. 事件证据（确认 Agent 是否发生真实 incident:// 读取）═══"
-api GET "/runs/$run_id/events?limit=100" | python3 -c "
+api GET "/runs/$run_id/events?limit=100" | "$PY" -c "
 import sys, json
 from collections import Counter
 d = json.load(sys.stdin)
@@ -117,7 +123,7 @@ for k, c in Counter(e['payload'].get('kind', '?') for e in evs).most_common():
     print(f'  {c:>3}  {k}')
 "
 snap=$(api GET "/runs/$run_id")
-echo "$snap" | python3 -c "
+echo "$snap" | "$PY" -c "
 import sys, json
 v = json.load(sys.stdin).get('view', {})
 print('final status:', v.get('status'))
