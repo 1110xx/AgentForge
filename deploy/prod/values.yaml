@@ -20,13 +20,13 @@
 images:
   controlPlane:
     repository: ghcr.io/1110xx/agentforge/enterprise-agent-platform/control-plane
-    digest: "sha256:c19d6b4cfa75f8669cbac6656aafe32c2efa8ac7f9b976678408565bf4bf1491"
+    digest: "sha256:6b8628ffca07aa89d6a151cc7369e4f5520953bc850fcea5341a71d78b998d00"
   runtime:
     repository: ghcr.io/1110xx/agentforge/enterprise-agent-platform/runtime
-    digest: "sha256:025c7f605d9bf2ae56a48b33baddadcba3fb50e46612e6b27e8372eacc063c48"
+    digest: "sha256:2c4a583e97e2f21b47254e4f80564a89bbfcd68e4ebd1ef66d71194c04ad2d11"
   frontend:
     repository: ghcr.io/1110xx/agentforge/enterprise-agent-platform/frontend
-    digest: "sha256:3e22af7bb9f4594857c7f7c9453bd926b233a0d1099d40ea8e6936db5c619703"
+    digest: "sha256:ee341a92b7eb09573b52fbc800f0f4bcf00ed71ef49f2ef23940372e01a3a39a"
 
 # The whole platform ships together: control plane + orchestrator workers +
 # the nginx-hosted SPA (AgentLauncher). Frontend is part of the production
