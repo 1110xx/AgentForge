@@ -16,10 +16,11 @@ Covers the three layers of the dual-link design:
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
-
 from pi_agent_core.types import (
     AssistantMessage,
     StreamTextDeltaEvent,
@@ -33,8 +34,8 @@ from pi_agent_core.types import (
 
 from enterprise_agent_platform.contracts.enums import EventType
 from enterprise_agent_platform.contracts.events import (
-    AgentTurnCompletedPayload,
     EVENT_PAYLOAD_CONTRACTS,
+    AgentTurnCompletedPayload,
     EnterpriseEventEnvelope,
     ToolExecutionEndedPayload,
     ToolExecutionStartedPayload,
@@ -42,14 +43,14 @@ from enterprise_agent_platform.contracts.events import (
 from enterprise_agent_platform.control.context import RequestContext
 from enterprise_agent_platform.domain.records import DispatchTicket
 from enterprise_agent_platform.execution.runtime import (
+    AgentRuntime,
     _capsize_args,
     _clip_text,
-    AgentRuntime,
 )
 from enterprise_agent_platform.execution.subprocess_orchestrator import (
     SubprocessOrchestrator,
 )
-from enterprise_agent_platform.fastapi.sse import chunk_frame
+from enterprise_agent_platform.fastapi.sse import chunk_frame, stream_run_events
 from enterprise_agent_platform.persistence.protocol import PlatformError
 from enterprise_agent_platform.platform.run_chunks import InMemoryRunChunkRelay
 from enterprise_agent_platform.reference.provider import ReferenceWorkflowHarness
@@ -473,3 +474,105 @@ def test_sse_chunk_frame_has_no_event_seq() -> None:
     assert "id:" not in frame.split("\n", 1)[0]
     assert "event_seq" not in frame
     assert "分析" in frame
+
+
+@pytest.mark.asyncio
+async def test_wait_chunks_returns_true_when_pending() -> None:
+    relay = InMemoryRunChunkRelay()
+    relay.push("r1", {"kind": "text.delta", "delta": "1"})
+    assert await relay.wait_chunks("r1", timeout_seconds=0.05) is True
+    assert relay.pending("r1") == 1
+    drained = relay.drain("r1", limit=10)
+    assert drained == [{"kind": "text.delta", "delta": "1"}]
+    assert relay.pending("r1") == 0
+
+
+@pytest.mark.asyncio
+async def test_wait_chunks_times_out_when_idle() -> None:
+    relay = InMemoryRunChunkRelay()
+    assert await relay.wait_chunks("r1", timeout_seconds=0.05) is False
+    assert relay.pending("r1") == 0
+
+
+@pytest.mark.asyncio
+async def test_push_wakes_waiting_consumer() -> None:
+    relay = InMemoryRunChunkRelay()
+    waiter = asyncio.create_task(relay.wait_chunks("r1", timeout_seconds=5.0))
+    await asyncio.sleep(0.05)  # let the waiter register on the event loop
+    relay.push("r1", {"kind": "thinking.delta", "delta": "wake"})
+    notified = await asyncio.wait_for(waiter, timeout=1.0)
+    assert notified is True
+    drained = relay.drain("r1", limit=10)
+    assert len(drained) == 1
+    # The wake signal is consumed: an idle run waits (and times out) again.
+    assert await relay.wait_chunks("r1", timeout_seconds=0.05) is False
+
+
+def test_discard_run_drops_buffer_and_wake() -> None:
+    relay = InMemoryRunChunkRelay()
+    relay.push("r1", {"kind": "text.delta", "delta": "1"})
+    relay.discard_run("r1")
+    assert relay.pending("r1") == 0
+    assert relay.drain("r1", limit=10) == []
+
+
+class _FakeSseRequest:
+    async def is_disconnected(self) -> bool:
+        return False
+
+
+class _FakePollSubscription:
+    async def wait(self, timeout_seconds: float) -> bool:
+        await asyncio.sleep(timeout_seconds)
+        return False
+
+
+class _FakePollNotifier:
+    @asynccontextmanager
+    async def subscribe(self, tenant_id: str, run_id: str):
+        del tenant_id, run_id
+        yield _FakePollSubscription()
+
+
+class _FakeEventQuery:
+    async def get_events(self, tenant_id, run_id, *, after_event_seq, limit):
+        del tenant_id, run_id, after_event_seq, limit
+        return SimpleNamespace(events=())
+
+
+@pytest.mark.asyncio
+async def test_sse_streams_chunk_on_push_before_heartbeat() -> None:
+    relay = InMemoryRunChunkRelay()
+    run_id = "r-chunk-wake"
+
+    async def producer() -> None:
+        await asyncio.sleep(0.1)
+        relay.push(run_id, {"run_id": run_id, "kind": "text.delta", "delta": "流"})
+
+    push_task = asyncio.create_task(producer())
+    # heartbeat_seconds is far longer than the push delay: if the chunk only
+    # reached the client because the loop woke on push, the frame arrives
+    # almost immediately; a pure once-per-heartbeat relay would stall.
+    stream = stream_run_events(
+        request=_FakeSseRequest(),
+        query=_FakeEventQuery(),
+        notifier=_FakePollNotifier(),
+        tenant_id="t",
+        run_id=run_id,
+        after_event_seq=0,
+        trace_id=None,
+        heartbeat_seconds=30.0,
+        max_lifetime_seconds=60.0,
+        chunks=relay,
+    )
+    frame: str | None = None
+    try:
+        frame = await asyncio.wait_for(anext(stream), timeout=2.0)
+    except (TimeoutError, StopAsyncIteration):
+        pass
+    finally:
+        await stream.aclose()
+        push_task.cancel()
+        await asyncio.gather(push_task, return_exceptions=True)
+    assert frame is not None and frame.startswith("event: stream-chunk\n")
+    assert "text.delta" in frame

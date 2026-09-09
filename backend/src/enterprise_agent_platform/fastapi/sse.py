@@ -1,10 +1,10 @@
-"""Replay-safe SSE framing with bounded batches and notifier-only wakeups."""
+"""Replay-safe SSE framing with bounded batches and notifier/chunk wakeups."""
 from __future__ import annotations
 
 import asyncio
 import json
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Protocol, runtime_checkable
 
@@ -105,48 +105,94 @@ async def stream_run_events(
         raise ValueError("SSE heartbeat and maximum lifetime must be positive")
     if not 1 <= batch_size <= 100:
         raise ValueError("SSE batch size must be between 1 and 100")
+    # Optional push-driven chunk wake-up (SDD §11.5). When the relay supports
+    # ``wait_chunks`` the wait below wakes as soon as a producer pushes a chunk
+    # instead of only on the next durable-event/heartbeat tick; the loop then
+    # re-drains and streams the deltas to the client in near-real-time.
+    chunk_waiter: Callable[[str, float], Awaitable[bool]] | None = None
+    discard_run = None
+    if chunks is not None:
+        waiter = getattr(chunks, "wait_chunks", None)
+        if callable(waiter):
+            chunk_waiter = waiter
+        discard_run = getattr(chunks, "discard_run", None)
     cursor = after_event_seq
     deadline = time.monotonic() + max_lifetime_seconds
     async with notifier.subscribe(tenant_id, run_id) as subscription:
-        while time.monotonic() < deadline:
-            if await request.is_disconnected():
-                return
-            # Ephemeral link: drain live stream chunks before the durable page
-            # (SDD §11.5). A chunk batch is bounded; anything still queued stays
-            # for the next drain and is dropped once the connection closes.
-            if chunks is not None:
-                for chunk in chunks.drain(run_id, limit=chunk_batch_size):
-                    if time.monotonic() >= deadline or await request.is_disconnected():
-                        return
-                    yield chunk_frame(chunk)
-            try:
-                page = await query.get_events(
-                    tenant_id,
-                    run_id,
-                    after_event_seq=cursor,
-                    limit=batch_size,
-                )
-            except PlatformError as error:
-                if error.code == "RESYNC_REQUIRED":
-                    yield resync_required_frame(trace_id)
+        try:
+            while time.monotonic() < deadline:
+                if await request.is_disconnected():
                     return
-                raise
-            if page.events:
-                for event in page.events:
-                    if time.monotonic() >= deadline or await request.is_disconnected():
+                # Ephemeral link: drain live stream chunks before the durable page
+                # (SDD §11.5). A chunk batch is bounded; anything still queued stays
+                # for the next drain and is dropped once the connection closes.
+                if chunks is not None:
+                    for chunk in chunks.drain(run_id, limit=chunk_batch_size):
+                        if time.monotonic() >= deadline or await request.is_disconnected():
+                            return
+                        yield chunk_frame(chunk)
+                try:
+                    page = await query.get_events(
+                        tenant_id,
+                        run_id,
+                        after_event_seq=cursor,
+                        limit=batch_size,
+                    )
+                except PlatformError as error:
+                    if error.code == "RESYNC_REQUIRED":
+                        yield resync_required_frame(trace_id)
                         return
-                    yield event_frame(event)
-                    cursor = event.event_seq
-                continue
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return
-            timeout = min(heartbeat_seconds, remaining)
-            try:
-                notified = await asyncio.wait_for(
-                    subscription.wait(timeout), timeout=timeout + 0.05
+                    raise
+                if page.events:
+                    for event in page.events:
+                        if time.monotonic() >= deadline or await request.is_disconnected():
+                            return
+                        yield event_frame(event)
+                        cursor = event.event_seq
+                    continue
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return
+                timeout = min(heartbeat_seconds, remaining)
+                if chunk_waiter is None:
+                    notified = False
+                    try:
+                        notified = await asyncio.wait_for(
+                            subscription.wait(timeout), timeout=timeout + 0.05
+                        )
+                    except TimeoutError:
+                        notified = False
+                    if not notified:
+                        yield ":heartbeat\n\n"
+                    continue
+                # Wait on whichever fires first: a durable-event notification or
+                # a new ephemeral chunk. Both suppress the heartbeat so the loop
+                # immediately re-drains; the heartbeat is only a keep-alive when
+                # neither produced anything within ``timeout``.
+                event_wait = asyncio.create_task(subscription.wait(timeout))
+                chunk_wait = asyncio.create_task(chunk_waiter(run_id, timeout))
+                done, pending = await asyncio.wait(
+                    {event_wait, chunk_wait},
+                    timeout=timeout + 0.05,
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
-            except TimeoutError:
-                notified = False
-            if not notified:
-                yield ":heartbeat\n\n"
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    await asyncio.gather(*pending, return_exceptions=True)
+                woke = False
+                for task in done:
+                    if task.cancelled():
+                        continue
+                    exception = task.exception()
+                    if exception is not None:
+                        if isinstance(exception, TimeoutError):
+                            continue
+                        raise exception
+                    if task.result():
+                        woke = True
+                if not woke:
+                    yield ":heartbeat\n\n"
+        finally:
+            if discard_run is not None:
+                discard_run(run_id)
